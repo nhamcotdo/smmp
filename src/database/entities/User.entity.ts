@@ -6,9 +6,9 @@ import {
   Unique,
 } from 'typeorm'
 import { BaseEntity } from './base.entity'
-import { SocialAccount } from './SocialAccount.entity'
-import { Post } from './Post.entity'
 import { UserRole } from './enums'
+import type { SocialAccount } from './SocialAccount.entity'
+import type { Post } from './Post.entity'
 
 @Entity('users')
 @Unique(['email'])
@@ -81,13 +81,13 @@ export class User extends BaseEntity {
   })
   preferences!: Record<string, unknown>
 
-  @OneToMany(() => SocialAccount, (account) => account.user, {
+  @OneToMany('SocialAccount', 'user', {
     cascade: true,
     onDelete: 'CASCADE',
   })
   socialAccounts!: SocialAccount[]
 
-  @OneToMany(() => Post, (post) => post.user, {
+  @OneToMany('Post', 'user', {
     cascade: true,
     onDelete: 'CASCADE',
   })

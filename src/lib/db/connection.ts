@@ -1,18 +1,39 @@
 import 'reflect-metadata'
 import { DataSource, DataSourceOptions } from 'typeorm'
-import { User } from '../../database/entities/User.entity'
-import { SocialAccount } from '../../database/entities/SocialAccount.entity'
-import { Post } from '../../database/entities/Post.entity'
-import { PostPublication } from '../../database/entities/PostPublication.entity'
-import { Media } from '../../database/entities/Media.entity'
-import { Analytics } from '../../database/entities/Analytics.entity'
 
 declare global {
   // eslint-disable-next-line no-var
   var __typeorm__: DataSource | undefined
 }
 
-function createDataSource(): DataSource {
+/**
+ * Dynamically import entities to avoid circular dependency issues.
+ * All entities must be listed here for TypeORM to recognize them.
+ * This approach allows entities to reference each other without import cycles.
+ */
+async function loadEntities() {
+  const [
+    { User },
+    { SocialAccount },
+    { Post },
+    { PostPublication },
+    { Media },
+    { Analytics },
+  ] = await Promise.all([
+    import('../../database/entities/User.entity'),
+    import('../../database/entities/SocialAccount.entity'),
+    import('../../database/entities/Post.entity'),
+    import('../../database/entities/PostPublication.entity'),
+    import('../../database/entities/Media.entity'),
+    import('../../database/entities/Analytics.entity'),
+  ])
+
+  return [User, SocialAccount, Post, PostPublication, Media, Analytics]
+}
+
+async function createDataSource(): Promise<DataSource> {
+  const entities = await loadEntities()
+
   const options: DataSourceOptions = {
     type: 'postgres',
     host: process.env.DATABASE_HOST ?? 'localhost',
@@ -27,14 +48,7 @@ function createDataSource(): DataSource {
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 2000,
     },
-    entities: [
-      User,
-      SocialAccount,
-      Post,
-      PostPublication,
-      Media,
-      Analytics,
-    ],
+    entities,
     synchronize: process.env.NODE_ENV !== 'production',
     logging: process.env.NODE_ENV === 'development' ? ['error', 'warn'] : false,
   }
@@ -54,7 +68,7 @@ export async function getConnection(): Promise<DataSource> {
     return global.__typeorm__
   }
 
-  const dataSource = createDataSource()
+  const dataSource = await createDataSource()
 
   if (!dataSource.isInitialized) {
     await dataSource.initialize()
