@@ -7,9 +7,9 @@ import {
   Index,
 } from 'typeorm'
 import { BaseEntity } from './base.entity'
-import { User } from './User.entity'
-import { PostPublication } from './PostPublication.entity'
-import { Media } from './Media.entity'
+import type { User } from './User.entity'
+import type { PostPublication } from './PostPublication.entity'
+import type { Media } from './Media.entity'
 import { PostStatus, ContentType } from './enums'
 
 @Entity('posts')
@@ -28,7 +28,7 @@ export class Post extends BaseEntity {
   })
   userId!: string
 
-  @ManyToOne(() => User, (user) => user.posts, {
+  @ManyToOne('User', 'posts', {
     onDelete: 'CASCADE',
   })
   @JoinColumn({ name: 'user_id' })
@@ -155,13 +155,13 @@ export class Post extends BaseEntity {
   })
   lastRetryAt!: Date
 
-  @OneToMany(() => PostPublication, (publication) => publication.post, {
+  @OneToMany('PostPublication', 'post', {
     cascade: true,
     onDelete: 'CASCADE',
   })
   publications!: PostPublication[]
 
-  @OneToMany(() => Media, (media) => media.post, {
+  @OneToMany('Media', 'post', {
     cascade: true,
     onDelete: 'CASCADE',
   })

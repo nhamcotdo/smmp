@@ -81,6 +81,8 @@ export class User extends BaseEntity {
   })
   preferences!: Record<string, unknown>
 
+  // String-based decorator to avoid circular dependencies during build
+  // Type imports provide compile-time safety without runtime import cycles
   @OneToMany('SocialAccount', 'user', {
     cascade: true,
     onDelete: 'CASCADE',

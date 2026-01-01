@@ -6,8 +6,8 @@ import {
   Index,
 } from 'typeorm'
 import { BaseEntity } from './base.entity'
-import { Post } from './Post.entity'
-import { SocialAccount } from './SocialAccount.entity'
+import type { Post } from './Post.entity'
+import type { SocialAccount } from './SocialAccount.entity'
 import { Platform, PostStatus } from './enums'
 
 @Entity('post_publications')
@@ -30,7 +30,7 @@ export class PostPublication extends BaseEntity {
   })
   postId!: string
 
-  @ManyToOne(() => Post, (post) => post.publications, {
+  @ManyToOne('Post', 'publications', {
     onDelete: 'CASCADE',
   })
   @JoinColumn({ name: 'post_id' })
@@ -43,7 +43,7 @@ export class PostPublication extends BaseEntity {
   })
   socialAccountId!: string
 
-  @ManyToOne(() => SocialAccount, (account) => account.publications, {
+  @ManyToOne('SocialAccount', 'publications', {
     onDelete: 'CASCADE',
   })
   @JoinColumn({ name: 'social_account_id' })

@@ -7,8 +7,8 @@ import {
   Index,
 } from 'typeorm'
 import { BaseEntity } from './base.entity'
-import { User } from './User.entity'
-import { PostPublication } from './PostPublication.entity'
+import type { User } from './User.entity'
+import type { PostPublication } from './PostPublication.entity'
 import { Platform, AccountStatus, AccountHealth } from './enums'
 
 @Entity('social_accounts')
@@ -26,7 +26,7 @@ export class SocialAccount extends BaseEntity {
   })
   userId!: string
 
-  @ManyToOne(() => User, (user) => user.socialAccounts, {
+  @ManyToOne('User', 'socialAccounts', {
     onDelete: 'CASCADE',
   })
   @JoinColumn({ name: 'user_id' })
@@ -160,7 +160,7 @@ export class SocialAccount extends BaseEntity {
   })
   lastPostedAt!: Date
 
-  @OneToMany(() => PostPublication, (publication) => publication.socialAccount, {
+  @OneToMany('PostPublication', 'socialAccount', {
     cascade: true,
   })
   publications!: PostPublication[]

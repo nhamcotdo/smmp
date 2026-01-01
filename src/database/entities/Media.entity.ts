@@ -6,7 +6,7 @@ import {
   Index,
 } from 'typeorm'
 import { BaseEntity } from './base.entity'
-import { Post } from './Post.entity'
+import type { Post } from './Post.entity'
 import { MediaType } from './enums'
 
 @Entity('media')
@@ -22,7 +22,7 @@ export class Media extends BaseEntity {
   })
   postId!: string
 
-  @ManyToOne(() => Post, (post) => post.media, {
+  @ManyToOne('Post', 'media', {
     onDelete: 'CASCADE',
   })
   @JoinColumn({ name: 'post_id' })
