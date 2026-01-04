@@ -10,12 +10,16 @@ import type { ApiResponse } from '@/lib/types'
  * DELETE /api/channels/:id
  * Disconnect (soft delete) a social account
  */
-async function disconnectChannel(request: Request, user: User) {
+async function disconnectChannel(
+  request: Request,
+  user: User,
+  context?: { params: Promise<Record<string, string>> },
+) {
   try {
-    // Extract id from URL
-    const url = new URL(request.url)
-    const pathParts = url.pathname.split('/')
-    const channelId = pathParts[pathParts.length - 1]
+    const { id: channelId } = await context?.params ?? {}
+    if (!channelId) {
+      throw new Error('Channel ID is required')
+    }
 
     const dataSource = await getConnection()
     const socialAccountRepository = dataSource.getRepository(SocialAccount)
@@ -67,12 +71,16 @@ async function disconnectChannel(request: Request, user: User) {
  * POST /api/channels/:id/refresh
  * Refresh access token for a social account
  */
-async function refreshToken(request: Request, user: User) {
+async function refreshToken(
+  request: Request,
+  user: User,
+  context?: { params: Promise<Record<string, string>> },
+) {
   try {
-    // Extract id from URL
-    const url = new URL(request.url)
-    const pathParts = url.pathname.split('/')
-    const channelId = pathParts[pathParts.length - 1]
+    const { id: channelId } = await context?.params ?? {}
+    if (!channelId) {
+      throw new Error('Channel ID is required')
+    }
 
     const dataSource = await getConnection()
     const socialAccountRepository = dataSource.getRepository(SocialAccount)

@@ -23,12 +23,16 @@ interface PublishResponse {
  * POST /api/posts/:id/publish/threads
  * Publish a post to a specific Threads channel
  */
-async function publishToThreads(request: Request, user: User) {
+async function publishToThreads(
+  request: Request,
+  user: User,
+  context?: { params: Promise<Record<string, string>> },
+) {
   try {
-    // Extract post id from URL
-    const url = new URL(request.url)
-    const pathParts = url.pathname.split('/')
-    const postId = pathParts[pathParts.length - 3] // /api/posts/:id/publish/threads
+    const { id: postId } = await context?.params ?? {}
+    if (!postId) {
+      throw new Error('Post ID is required')
+    }
 
     const body = await request.json() as PublishRequest
     const { channelId } = body

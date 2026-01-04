@@ -6,7 +6,7 @@ import {
   Index,
 } from 'typeorm'
 import { BaseEntity } from './base.entity'
-import { PostPublication } from './PostPublication.entity'
+import type { PostPublication } from './PostPublication.entity'
 import { Platform, MetricsPeriod } from './enums'
 
 @Entity('analytics')
@@ -23,7 +23,7 @@ export class Analytics extends BaseEntity {
   })
   postPublicationId!: string
 
-  @ManyToOne(() => PostPublication, {
+  @ManyToOne('PostPublication', 'analytics', {
     onDelete: 'CASCADE',
   })
   @JoinColumn({ name: 'post_publication_id' })

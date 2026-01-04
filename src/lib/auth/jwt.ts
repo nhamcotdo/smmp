@@ -1,4 +1,4 @@
-import jwt from 'jsonwebtoken'
+import jwt, { type SignOptions } from 'jsonwebtoken'
 import type { JwtPayload } from '../types/auth'
 
 const JWT_SECRET = process.env.JWT_SECRET
@@ -13,18 +13,17 @@ function getSecret(): string {
 }
 
 export function generateToken(payload: Omit<JwtPayload, 'iat' | 'exp'>): string {
-  // Note: as any cast needed due to jsonwebtoken@9.x type definition issues with expiresIn
   return jwt.sign(payload, getSecret(), {
     expiresIn: JWT_EXPIRES_IN,
     issuer: 'smmp',
     audience: 'smmp-api',
-  } as any)
+  } as SignOptions)
 }
 
 export function generateRefreshToken(payload: Omit<JwtPayload, 'iat' | 'exp'>): string {
   return jwt.sign(payload, getSecret(), {
     expiresIn: JWT_REFRESH_EXPIRES_IN,
-  } as any)
+  } as SignOptions)
 }
 
 export function verifyToken(token: string): JwtPayload {

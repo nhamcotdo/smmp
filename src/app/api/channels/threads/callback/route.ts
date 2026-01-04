@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+import { NextResponse, NextRequest } from 'next/server'
 import { getConnection } from '@/lib/db/connection'
 import { SocialAccount } from '@/database/entities/SocialAccount.entity'
 import {

@@ -8,7 +8,7 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm'
-import { User } from './User.entity'
+import type { User } from './User.entity'
 
 export enum RefreshTokenStatus {
   ACTIVE = 'ACTIVE',
@@ -24,7 +24,7 @@ export class RefreshToken {
   @PrimaryGeneratedColumn('uuid')
   id!: string
 
-  @Column({ name: 'user_id' })
+  @Column({ type: 'uuid', name: 'user_id' })
   userId!: string
 
   @ManyToOne('User', 'refreshTokens', {
@@ -33,10 +33,10 @@ export class RefreshToken {
   @JoinColumn({ name: 'user_id' })
   user!: User
 
-  @Column({ unique: true })
+  @Column({ type: 'varchar', length: 1000, unique: true })
   token!: string
 
-  @Column({ type: 'timestamp', name: 'expires_at' })
+  @Column({ type: 'timestamp with time zone', name: 'expires_at' })
   expiresAt!: Date
 
   @Column({
@@ -49,17 +49,15 @@ export class RefreshToken {
   @Column({ type: 'boolean', default: false, name: 'is_remember_me' })
   isRememberMe!: boolean
 
-  @Column({ type: 'timestamp', nullable: true, name: 'revoked_at' })
+  @Column({ type: 'timestamp with time zone', nullable: true, name: 'revoked_at' })
   revokedAt: Date | null = null
 
-  @Column({ type: 'varchar', nullable: true, name: 'revoked_ip' })
+  @Column({ type: 'varchar', length: 45, nullable: true, name: 'revoked_ip' })
   revokedIp: string | null = null
 
-  @Column({ type: 'timestamp', name: 'created_at' })
-  @CreateDateColumn({ name: 'created_at' })
+  @CreateDateColumn({ name: 'created_at', type: 'timestamp with time zone' })
   createdAt!: Date
 
-  @Column({ type: 'timestamp', name: 'updated_at' })
-  @UpdateDateColumn({ name: 'updated_at' })
+  @UpdateDateColumn({ name: 'updated_at', type: 'timestamp with time zone' })
   updatedAt!: Date
 }

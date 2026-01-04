@@ -30,12 +30,15 @@ export async function authenticateRequest(request: NextRequest): Promise<{ user:
 }
 
 export function withAuth<T>(
-  handler: (request: NextRequest, user: User) => Promise<NextResponse<ApiResponse<T>>>,
+  handler: (request: NextRequest, user: User, context?: { params: Promise<Record<string, string>> }) => Promise<NextResponse<ApiResponse<T>>>,
 ) {
-  return async (request: NextRequest): Promise<NextResponse<ApiResponse<T>>> => {
+  return async (
+    request: NextRequest,
+    context?: { params: Promise<Record<string, string>> },
+  ): Promise<NextResponse<ApiResponse<T>>> => {
     try {
       const { user } = await authenticateRequest(request)
-      return handler(request, user)
+      return handler(request, user, context)
     } catch (error) {
       if (error instanceof Error) {
         return NextResponse.json(
