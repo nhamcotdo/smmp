@@ -1,36 +1,198 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# SMMP - Social Media Management Platform
 
-## Getting Started
+A social media management platform built with Next.js, featuring Threads integration and multi-platform publishing capabilities.
 
-First, run the development server:
+## Tech Stack
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+- **Framework**: Next.js 16 (App Router)
+- **Language**: TypeScript
+- **Database**: PostgreSQL with TypeORM
+- **Authentication**: JWT with Passport
+- **Styling**: Tailwind CSS 4
+- **Testing**: Vitest + Testing Library
+
+## Features
+
+- **User Authentication**: Register, login, and JWT-based session management
+- **Channel Management**: Connect and manage Threads accounts
+- **Post Publishing**: Create and publish posts to Threads
+- **OAuth Integration**: Secure OAuth 2.0 flow for Threads API
+- **Token Management**: Automatic refresh token handling
+
+## Prerequisites
+
+- Node.js 20+
+- PostgreSQL database
+- Threads App credentials ([Meta Developer Portal](https://developers.facebook.com))
+
+## Environment Variables
+
+Create a `.env` file in the project root:
+
+```env
+# Database
+DATABASE_URL=postgresql://user:password@localhost:5432/smmp
+
+# JWT
+JWT_SECRET=your-secret-key
+JWT_EXPIRES_IN=7d
+
+# Threads API
+THREADS_APP_ID=your-app-id
+THREADS_APP_SECRET=your-app-secret
+THREADS_REDIRECT_URI=https://threads-sample.meta:8000/api/channels/threads/callback
+
+# API
+NEXT_PUBLIC_API_URL=https://threads-sample.meta:8000
+
+# Hostname (for HTTPS dev server)
+HOSTNAME=threads-sample.meta
+PORT=8000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Setup
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### 1. Install Dependencies
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm install
+```
 
-## Learn More
+### 2. Setup SSL Certificates (for HTTPS)
 
-To learn more about Next.js, take a look at the following resources:
+This project uses HTTPS for local development to support OAuth callbacks.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+#### Install mkcert
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```bash
+# macOS
+brew install mkcert
+brew install nss  # Firefox support
 
-## Deploy on Vercel
+# Generate local CA
+mkcert -install
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+#### Generate Certificates
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+cd cert
+mkcert threads-sample.meta localhost 127.0.0.1
+```
+
+#### Update /etc/hosts
+
+Add the local domain to your hosts file:
+
+```bash
+# macOS/Linux
+sudo sh -c 'echo "127.0.0.1 threads-sample.meta" >> /etc/hosts'
+```
+
+### 3. Initialize Database
+
+```bash
+npm run build
+# TypeORM will auto-create tables on first run
+```
+
+### 4. Start Development Server
+
+```bash
+# HTTPS server (recommended for OAuth)
+npm run dev:https
+
+# Or HTTP server
+npm run dev
+```
+
+Visit [https://threads-sample.meta:8000](https://threads-sample.meta:8000)
+
+## API Routes
+
+### Authentication
+- `POST /api/auth/register` - Register new user
+- `POST /api/auth/login` - Login and get JWT token
+- `GET /api/auth/me` - Get current user info
+
+### Channels
+- `GET /api/channels` - List connected channels
+- `GET /api/channels/threads/connect` - Get Threads OAuth URL
+- `GET /api/channels/threads/callback` - OAuth callback handler
+- `DELETE /api/channels/:id` - Disconnect a channel
+- `POST /api/channels/:id` - Refresh channel token
+
+### Posts
+- `POST /api/posts/:id/publish/threads` - Publish post to Threads
+
+## Project Structure
+
+```
+src/
+├── app/
+│   ├── api/           # API routes
+│   ├── channels/      # Channel management pages
+│   ├── login/         # Login page
+│   ├── posts/         # Post creation pages
+│   └── register/      # Registration page
+├── contexts/          # React contexts
+├── database/          # Database entities
+├── lib/
+│   ├── api/          # API client functions
+│   ├── services/     # Business logic
+│   └── types/        # TypeScript types
+└── middleware/       # Auth middleware
+```
+
+## Scripts
+
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Start HTTP dev server |
+| `npm run dev:https` | Start HTTPS dev server |
+| `npm run build` | Build for production |
+| `npm run start` | Start production server |
+| `npm run lint` | Run ESLint |
+| `npm run type-check` | Check TypeScript types |
+| `npm run test` | Run tests |
+
+## Threads API Integration
+
+### Supported Features
+
+- Text posts
+- Image posts (coming soon)
+- Video posts (coming soon)
+- Container-based publishing
+- Token refresh
+
+### OAuth Flow
+
+1. User clicks "Connect Threads"
+2. Redirects to Threads authorization URL
+3. User grants permissions
+4. Callback exchanges code for access token
+5. Long-lived token (60 days) stored in database
+6. Refresh token stored for automatic renewal
+
+## Troubleshooting
+
+### SSL Certificate Warnings
+
+When first accessing `https://threads-sample.meta:8000`, your browser may show a warning. This is expected for self-signed certificates. Click "Advanced" → "Proceed to site".
+
+### Port Already in Use
+
+If port 8000 is in use, you can change it:
+
+```bash
+PORT=3001 npm run dev:https
+```
+
+### Database Connection Issues
+
+Ensure PostgreSQL is running and the `DATABASE_URL` is correct.
+
+## License
+
+MIT

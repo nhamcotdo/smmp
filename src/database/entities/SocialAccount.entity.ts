@@ -92,7 +92,7 @@ export class SocialAccount extends BaseEntity {
     type: 'text',
     nullable: true,
     name: 'access_token',
-    select: false,
+    select: true,
   })
   accessToken!: string
 
@@ -100,7 +100,7 @@ export class SocialAccount extends BaseEntity {
     type: 'text',
     nullable: true,
     name: 'refresh_token',
-    select: false,
+    select: true,
   })
   refreshToken!: string
 

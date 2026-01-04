@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import type { User } from '../../database/entities/User.entity'
 import { verifyJwtToken } from './passport'
 import type { ApiResponse } from '../types'
@@ -7,14 +7,16 @@ export interface AuthenticatedRequest extends Request {
   user?: User
 }
 
-export async function authenticateRequest(request: Request): Promise<{ user: User }> {
-  const authHeader = request.headers.get('authorization')
+/**
+ * Authenticate request using httpOnly cookie
+ */
+export async function authenticateRequest(request: NextRequest): Promise<{ user: User }> {
+  // Get token from cookie
+  const token = request.cookies.get('auth_token')?.value
 
-  if (!authHeader?.startsWith('Bearer ')) {
+  if (!token) {
     throw new Error('Unauthorized: No token provided')
   }
-
-  const token = authHeader.substring(7)
 
   try {
     const user = await verifyJwtToken(token)
@@ -28,9 +30,9 @@ export async function authenticateRequest(request: Request): Promise<{ user: Use
 }
 
 export function withAuth<T>(
-  handler: (request: Request, user: User) => Promise<NextResponse<ApiResponse<T>>>,
+  handler: (request: NextRequest, user: User) => Promise<NextResponse<ApiResponse<T>>>,
 ) {
-  return async (request: Request): Promise<NextResponse<ApiResponse<T>>> => {
+  return async (request: NextRequest): Promise<NextResponse<ApiResponse<T>>> => {
     try {
       const { user } = await authenticateRequest(request)
       return handler(request, user)
@@ -59,9 +61,9 @@ export function withAuth<T>(
 
 export function withAuthAndRoles<T>(
   allowedRoles: string[],
-  handler: (request: Request, user: User) => Promise<NextResponse<ApiResponse<T>>>,
+  handler: (request: NextRequest, user: User) => Promise<NextResponse<ApiResponse<T>>>,
 ) {
-  return async (request: Request): Promise<NextResponse<ApiResponse<T>>> => {
+  return async (request: NextRequest): Promise<NextResponse<ApiResponse<T>>> => {
     try {
       const { user } = await authenticateRequest(request)
 

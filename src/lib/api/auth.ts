@@ -1,6 +1,7 @@
 export interface LoginRequest {
   email: string
   password: string
+  rememberMe?: boolean
 }
 
 export interface RegisterRequest {
@@ -33,19 +34,56 @@ export interface ApiResponse<T> {
   data: T | null
 }
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'
+let isRefreshing = false
+let refreshPromise: Promise<boolean> | null = null
+
+async function refreshAccessToken(): Promise<boolean> {
+  if (isRefreshing) {
+    return refreshPromise ?? false
+  }
+
+  isRefreshing = true
+  refreshPromise = (async () => {
+    try {
+      const response = await fetch('/api/auth/refresh', { method: 'POST' })
+      return response.ok
+    } catch {
+      return false
+    } finally {
+      isRefreshing = false
+      refreshPromise = null
+    }
+  })()
+
+  return refreshPromise
+}
 
 async function fetchAPI<T>(
   endpoint: string,
-  options?: RequestInit
+  options?: RequestInit,
 ): Promise<ApiResponse<T>> {
-  const response = await fetch(`${API_BASE_URL}/api${endpoint}`, {
+  let response = await fetch(`/api${endpoint}`, {
     headers: {
       'Content-Type': 'application/json',
       ...options?.headers,
     },
     ...options,
   })
+
+  // If 401, try to refresh token and retry
+  if (response.status === 401 && !endpoint.startsWith('/auth/refresh')) {
+    const refreshed = await refreshAccessToken()
+    if (refreshed) {
+      // Retry original request with new token
+      response = await fetch(`/api${endpoint}`, {
+        headers: {
+          'Content-Type': 'application/json',
+          ...options?.headers,
+        },
+        ...options,
+      })
+    }
+  }
 
   const data = await response.json()
   return data as ApiResponse<T>
@@ -61,12 +99,7 @@ export async function login(credentials: LoginRequest): Promise<AuthResponse> {
     throw new Error(response.message)
   }
 
-  // Store token in localStorage
-  if (typeof window !== 'undefined') {
-    localStorage.setItem('auth_token', response.data.token)
-    localStorage.setItem('auth_user', JSON.stringify(response.data.user))
-  }
-
+  // Token is stored in httpOnly cookie by the server
   return response.data
 }
 
@@ -80,21 +113,12 @@ export async function register(data: RegisterRequest): Promise<AuthResponse> {
     throw new Error(response.message)
   }
 
-  // Store token in localStorage
-  if (typeof window !== 'undefined') {
-    localStorage.setItem('auth_token', response.data.token)
-    localStorage.setItem('auth_user', JSON.stringify(response.data.user))
-  }
-
+  // Token is stored in httpOnly cookie by the server
   return response.data
 }
 
-export async function getMe(token: string): Promise<User> {
-  const response = await fetchAPI<User>('/auth/me', {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-  })
+export async function getMe(): Promise<User> {
+  const response = await fetchAPI<User>('/auth/me')
 
   if (!response.success || !response.data) {
     throw new Error(response.message)
@@ -103,34 +127,16 @@ export async function getMe(token: string): Promise<User> {
   return response.data
 }
 
-export function logout(): void {
-  if (typeof window !== 'undefined') {
-    localStorage.removeItem('auth_token')
-    localStorage.removeItem('auth_user')
-  }
-}
+export async function logout(): Promise<void> {
+  const response = await fetch('/api/auth/logout', { method: 'POST' })
 
-export function getStoredToken(): string | null {
-  if (typeof window !== 'undefined') {
-    return localStorage.getItem('auth_token')
+  if (!response.ok) {
+    throw new Error('Logout failed')
   }
-  return null
-}
-
-export function getStoredUser(): User | null {
-  if (typeof window !== 'undefined') {
-    const userStr = localStorage.getItem('auth_user')
-    if (userStr) {
-      try {
-        return JSON.parse(userStr) as User
-      } catch {
-        return null
-      }
-    }
-  }
-  return null
 }
 
 export function isAuthenticated(): boolean {
-  return getStoredToken() !== null
+  // Authentication is checked via /api/auth/me endpoint
+  // This function is kept for compatibility but should not be relied upon
+  return false
 }

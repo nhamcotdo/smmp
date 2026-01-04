@@ -8,6 +8,7 @@ import {
 import { BaseEntity } from './base.entity'
 import { UserRole } from './enums'
 import type { SocialAccount } from './SocialAccount.entity'
+import type { RefreshToken } from './RefreshToken.entity'
 import type { Post } from './Post.entity'
 
 @Entity('users')
@@ -94,4 +95,10 @@ export class User extends BaseEntity {
     onDelete: 'CASCADE',
   })
   posts!: Post[]
+
+  @OneToMany('RefreshToken', 'user', {
+    cascade: true,
+    onDelete: 'CASCADE',
+  })
+  refreshTokens!: RefreshToken[]
 }

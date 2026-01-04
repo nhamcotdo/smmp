@@ -15,6 +15,7 @@ async function loadEntities() {
   const [
     { User },
     { SocialAccount },
+    { RefreshToken },
     { Post },
     { PostPublication },
     { Media },
@@ -22,13 +23,14 @@ async function loadEntities() {
   ] = await Promise.all([
     import('../../database/entities/User.entity'),
     import('../../database/entities/SocialAccount.entity'),
+    import('../../database/entities/RefreshToken.entity'),
     import('../../database/entities/Post.entity'),
     import('../../database/entities/PostPublication.entity'),
     import('../../database/entities/Media.entity'),
     import('../../database/entities/Analytics.entity'),
   ])
 
-  return [User, SocialAccount, Post, PostPublication, Media, Analytics]
+  return [User, SocialAccount, RefreshToken, Post, PostPublication, Media, Analytics]
 }
 
 async function createDataSource(): Promise<DataSource> {

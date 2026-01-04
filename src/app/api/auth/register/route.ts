@@ -73,7 +73,11 @@ export async function POST(request: NextRequest) {
       role: user.role,
     })
 
-    const expiresIn = parseInt(process.env.JWT_EXPIRES_IN?.replace(/\D/g, '') ?? '15', 10) * 60 * 1000
+    // Parse JWT_EXPIRES_IN to get cookie maxAge
+    const expiresInMatch = process.env.JWT_EXPIRES_IN?.match(/(\d+)([dhms])/i)
+    const expiresIn = expiresInMatch
+      ? parseInt(expiresInMatch[1]) * (expiresInMatch[2] === 'd' ? 86400 : expiresInMatch[2] === 'h' ? 3600 : expiresInMatch[2] === 'm' ? 60 : 1) * 1000
+      : 15 * 60 * 1000 // Default 15 minutes
 
     const response: AuthResponse = {
       user: {
@@ -87,11 +91,11 @@ export async function POST(request: NextRequest) {
         createdAt: user.createdAt.toISOString(),
         updatedAt: user.updatedAt.toISOString(),
       },
-      token,
+      token: '', // Token stored in httpOnly cookie, not exposed to client
       expiresIn,
     }
 
-    return NextResponse.json(
+    const jsonResponse = NextResponse.json(
       {
         success: true,
         message: 'Registration successful',
@@ -99,6 +103,17 @@ export async function POST(request: NextRequest) {
       } as ApiResponse<AuthResponse>,
       { status: 201 },
     )
+
+    // Set httpOnly cookie
+    jsonResponse.cookies.set('auth_token', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: expiresIn / 1000, // Convert to seconds
+      path: '/',
+    })
+
+    return jsonResponse
   } catch (error) {
     console.error('Registration error:', error)
     return NextResponse.json(
