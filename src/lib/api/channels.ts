@@ -160,3 +160,27 @@ export async function publishToThreads(postId: string, channelId: string): Promi
 
   return response.data
 }
+
+/**
+ * Create and publish a post to Threads in one request
+ */
+export async function createAndPublishToThreads(content: string, channelId: string): Promise<{
+  publicationId: string
+  platformPostId: string
+  platformUrl: string
+}> {
+  const response = await fetchAPI<{
+    publicationId: string
+    platformPostId: string
+    platformUrl: string
+  }>('/publish/threads', {
+    method: 'POST',
+    body: JSON.stringify({ content, channelId }),
+  })
+
+  if (!response.success || !response.data) {
+    throw new Error(response.message)
+  }
+
+  return response.data
+}

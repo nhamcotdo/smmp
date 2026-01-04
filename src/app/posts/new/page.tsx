@@ -4,7 +4,7 @@ import { useState, useEffect, FormEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/contexts/AuthContext'
 import Link from 'next/link'
-import { getChannels, publishToThreads } from '@/lib/api/channels'
+import { getChannels, createAndPublishToThreads } from '@/lib/api/channels'
 import type { Channel } from '@/lib/api/channels'
 import { Platform } from '@/database/entities/enums'
 
@@ -57,11 +57,7 @@ export default function CreatePostPage() {
     setIsPublishing(true)
 
     try {
-      // For now, we'll create a temporary post ID
-      // In a real implementation, you'd first create the post, then publish it
-      const tempPostId = 'temp-post-id'
-
-      const result = await publishToThreads(tempPostId, selectedChannel)
+      const result = await createAndPublishToThreads(content, selectedChannel)
       setSuccessMessage(
         `Post published successfully! View it at: ${result.platformUrl}`
       )

@@ -155,6 +155,7 @@ export async function createContainer(
 
 /**
  * Publish a container to create a Thread
+ * Note: Threads API uses 'creation_id' parameter, not 'container_id'
  */
 export async function publishContainer(
   accessToken: string,
@@ -163,7 +164,7 @@ export async function publishContainer(
 ): Promise<ThreadsPublishResponse> {
   const config = getConfig()
   const queryParams = new URLSearchParams({
-    container_id: params.container_id,
+    creation_id: params.container_id,
   })
 
   const response = await fetch(`${config.apiHost}/${userId}/threads_publish?${queryParams}`, {
@@ -290,6 +291,13 @@ export async function getUserProfile(
 
   const data = await response.json()
   return data as ThreadsUser
+}
+
+/**
+ * Build a Threads post URL
+ */
+export function buildThreadsPostUrl(username: string, postId: string): string {
+  return `https://threads.net/${username}/post/${postId}`
 }
 
 /**
