@@ -11,9 +11,15 @@ import { Post } from '@/database/entities/Post.entity'
 import { PostPublication } from '@/database/entities/PostPublication.entity'
 import { SocialAccount } from '@/database/entities/SocialAccount.entity'
 import { PostStatus, Platform, AccountStatus } from '@/database/entities/enums'
-import { publishTextPost } from '@/lib/services/threads-publisher.service'
+import {
+  publishTextPost,
+  publishImagePost,
+  publishVideoPost,
+} from '@/lib/services/threads-publisher.service'
 import { buildThreadsPostUrl } from '@/lib/services/threads.service'
 import { LessThan } from 'typeorm'
+import { ContentType } from '@/database/entities/enums'
+import { validateMediaUrl, getOwnHostname } from '@/lib/utils/content-parser'
 
 interface PublishResult {
   postId: string
@@ -42,7 +48,7 @@ export async function publishScheduledPosts(): Promise<PublishResult[]> {
       isScheduled: true,
       scheduledAt: LessThan(now),
     },
-    relations: ['publications'],
+    relations: ['publications', 'media'],
     order: {
       scheduledAt: 'ASC',
     },
@@ -81,9 +87,75 @@ export async function publishScheduledPosts(): Promise<PublishResult[]> {
       // TODO: Support publishing to multiple accounts
       const socialAccount = socialAccounts[0]
 
-      const platformPostId = await publishTextPost(socialAccount.accessToken, socialAccount.platformUserId, {
-        text: post.content,
-      })
+      // Get first media item if exists
+      const mediaItem = post.media?.[0]
+
+      // Get own hostname for validation (allows uploads from /api/upload to work in production)
+      const ownHostname = getOwnHostname()
+
+      // Validate media URLs before attempting to publish
+      if (post.contentType === ContentType.IMAGE && mediaItem?.url) {
+        const validation = validateMediaUrl(mediaItem.url, {
+          allowOwnHost: true,
+          ownHostname,
+        })
+        if (!validation.valid) {
+          throw new Error(`Invalid image URL: ${validation.error}`)
+        }
+      }
+
+      if (post.contentType === ContentType.VIDEO && mediaItem?.url) {
+        const validation = validateMediaUrl(mediaItem.url, {
+          allowOwnHost: true,
+          ownHostname,
+        })
+        if (!validation.valid) {
+          throw new Error(`Invalid video URL: ${validation.error}`)
+        }
+      }
+
+      // Publish based on content type
+      let platformPostId: string
+      switch (post.contentType) {
+        case ContentType.IMAGE: {
+          if (!mediaItem?.url) {
+            throw new Error('Image URL is required for image posts')
+          }
+          platformPostId = await publishImagePost(
+            socialAccount.accessToken,
+            socialAccount.platformUserId,
+            {
+              text: post.content || undefined,
+              imageUrl: mediaItem.url,
+              altText: mediaItem.altText || undefined,
+            }
+          )
+          break
+        }
+
+        case ContentType.VIDEO: {
+          if (!mediaItem?.url) {
+            throw new Error('Video URL is required for video posts')
+          }
+          platformPostId = await publishVideoPost(
+            socialAccount.accessToken,
+            socialAccount.platformUserId,
+            {
+              text: post.content || undefined,
+              videoUrl: mediaItem.url,
+              altText: mediaItem.altText || undefined,
+            }
+          )
+          break
+        }
+
+        case ContentType.TEXT:
+        default:
+          platformPostId = await publishTextPost(socialAccount.accessToken, socialAccount.platformUserId, {
+            text: post.content,
+          })
+          break
+      }
 
       // Create publication record
       const publication = postPublicationRepository.create({

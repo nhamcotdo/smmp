@@ -1,10 +1,12 @@
 import { NextResponse } from 'next/server'
 import { getConnection } from '@/lib/db/connection'
 import { Post } from '@/database/entities/Post.entity'
+import { Media } from '@/database/entities/Media.entity'
 import { User } from '@/database/entities/User.entity'
 import { withAuth } from '@/lib/auth/middleware'
-import { PostStatus, ContentType } from '@/database/entities/enums'
+import { PostStatus, ContentType, MediaType } from '@/database/entities/enums'
 import type { ApiResponse } from '@/lib/types'
+import { detectMimeTypeFromUrl, validateMediaUrl, getOwnHostname } from '@/lib/utils/content-parser'
 
 interface PostsQuery {
   status?: PostStatus
@@ -22,17 +24,33 @@ interface PostListItem {
   publishedAt: Date | null
   createdAt: string
   isScheduled: boolean
-  publications?: {
+  media?: Array<{
+    id: string
+    type: MediaType
+    url: string
+    thumbnailUrl?: string
+    altText?: string
+  }>
+  publications?: Array<{
     id: string
     platform: string
     status: string
     platformPostId: string | null
-  }[]
+  }>
 }
 
 interface PostsResponse {
   posts: PostListItem[]
   total: number
+}
+
+interface CreatePostRequest {
+  content: string
+  contentType?: ContentType
+  imageUrl?: string
+  videoUrl?: string
+  altText?: string
+  scheduledFor?: string
 }
 
 /**
@@ -64,7 +82,7 @@ async function getPosts(request: Request, user: User) {
 
     const [posts, total] = await postRepository.findAndCount({
       where,
-      relations: ['publications'],
+      relations: ['publications', 'media'],
       order: {
         createdAt: 'DESC',
       },
@@ -82,6 +100,13 @@ async function getPosts(request: Request, user: User) {
         publishedAt: post.publishedAt ?? null,
         createdAt: post.createdAt.toISOString(),
         isScheduled: post.isScheduled,
+        media: post.media?.map((m) => ({
+          id: m.id,
+          type: m.type,
+          url: m.url,
+          thumbnailUrl: m.thumbnailUrl ?? undefined,
+          altText: m.altText ?? undefined,
+        })),
         publications: post.publications?.map((pub) => ({
           id: pub.id,
           platform: pub.platform,
@@ -113,23 +138,96 @@ async function getPosts(request: Request, user: User) {
 
 /**
  * POST /api/posts
- * Create a new post
+ * Create a new post with optional media attachment
  */
 async function createPost(request: Request, user: User) {
   try {
-    const body = await request.json()
-    const { content, scheduledFor } = body
+    const body = await request.json() as CreatePostRequest
+    const { content, contentType, imageUrl, videoUrl, altText, scheduledFor } = body
 
-    if (!content?.trim()) {
+    if (!content?.trim() && !imageUrl && !videoUrl) {
       return NextResponse.json(
         {
           data: null,
           status: 400,
           success: false,
-          message: 'Content is required',
+          message: 'Content or media is required',
         } as unknown as ApiResponse<PostListItem>,
         { status: 400 }
       )
+    }
+
+    // Determine content type
+    let finalContentType = contentType || ContentType.TEXT
+    if (imageUrl) {
+      finalContentType = ContentType.IMAGE
+    } else if (videoUrl) {
+      finalContentType = ContentType.VIDEO
+    }
+
+    // Validate media URL matches content type
+    if (finalContentType === ContentType.IMAGE && !imageUrl) {
+      return NextResponse.json(
+        {
+          data: null,
+          status: 400,
+          success: false,
+          message: 'Image URL is required for IMAGE content type',
+        } as unknown as ApiResponse<PostListItem>,
+        { status: 400 }
+      )
+    }
+
+    if (finalContentType === ContentType.VIDEO && !videoUrl) {
+      return NextResponse.json(
+        {
+          data: null,
+          status: 400,
+          success: false,
+          message: 'Video URL is required for VIDEO content type',
+        } as unknown as ApiResponse<PostListItem>,
+        { status: 400 }
+      )
+    }
+
+    // Get own hostname for validation (allows uploads from /api/upload to work in production)
+    const ownHostname = getOwnHostname()
+
+    // Validate media URLs are publicly accessible (Threads API requirement)
+    if (imageUrl) {
+      const imageValidation = validateMediaUrl(imageUrl, {
+        allowOwnHost: true,
+        ownHostname,
+      })
+      if (!imageValidation.valid) {
+        return NextResponse.json(
+          {
+            data: null,
+            status: 400,
+            success: false,
+            message: `Invalid image URL: ${imageValidation.error}. Use a publicly accessible URL or upload via the form.`,
+          } as unknown as ApiResponse<PostListItem>,
+          { status: 400 }
+        )
+      }
+    }
+
+    if (videoUrl) {
+      const videoValidation = validateMediaUrl(videoUrl, {
+        allowOwnHost: true,
+        ownHostname,
+      })
+      if (!videoValidation.valid) {
+        return NextResponse.json(
+          {
+            data: null,
+            status: 400,
+            success: false,
+            message: `Invalid video URL: ${videoValidation.error}. Use a publicly accessible URL or upload via the form.`,
+          } as unknown as ApiResponse<PostListItem>,
+          { status: 400 }
+        )
+      }
     }
 
     // Validate scheduled date is in the future
@@ -161,27 +259,55 @@ async function createPost(request: Request, user: User) {
 
     const dataSource = await getConnection()
     const postRepository = dataSource.getRepository(Post)
+    const mediaRepository = dataSource.getRepository(Media)
 
+    // Create post
     const post = postRepository.create({
       userId: user.id,
-      content: content.trim(),
+      content: content?.trim() || '',
       status: PostStatus.DRAFT,
-      contentType: ContentType.TEXT,
+      contentType: finalContentType,
       isScheduled: !!scheduledFor,
       scheduledAt: scheduledFor ? new Date(scheduledFor) : undefined,
     })
 
-    await postRepository.save(post)
+    const savedPost = await postRepository.save(post)
+
+    // Create media record if image or video URL provided
+    let mediaItems: PostListItem['media'] = []
+    if (imageUrl || videoUrl) {
+      const mediaUrl = imageUrl || videoUrl || ''
+      const detectedMimeType = detectMimeTypeFromUrl(mediaUrl)
+
+      const media = mediaRepository.create({
+        postId: savedPost.id,
+        type: finalContentType === ContentType.IMAGE ? MediaType.IMAGE : MediaType.VIDEO,
+        url: mediaUrl,
+        altText: altText || undefined,
+        mimeType: detectedMimeType || (finalContentType === ContentType.IMAGE ? 'image/jpeg' : 'video/mp4'),
+        order: 0,
+      })
+      await mediaRepository.save(media)
+
+      mediaItems = [{
+        id: media.id,
+        type: media.type,
+        url: media.url,
+        thumbnailUrl: media.thumbnailUrl ?? undefined,
+        altText: media.altText ?? undefined,
+      }]
+    }
 
     const response: PostListItem = {
-      id: post.id,
-      content: post.content,
-      status: post.status,
-      contentType: post.contentType,
-      scheduledAt: post.scheduledAt ?? null,
-      publishedAt: post.publishedAt ?? null,
-      createdAt: post.createdAt.toISOString(),
-      isScheduled: post.isScheduled,
+      id: savedPost.id,
+      content: savedPost.content,
+      status: savedPost.status,
+      contentType: savedPost.contentType,
+      scheduledAt: savedPost.scheduledAt ?? null,
+      publishedAt: savedPost.publishedAt ?? null,
+      createdAt: savedPost.createdAt.toISOString(),
+      isScheduled: savedPost.isScheduled,
+      media: mediaItems,
     }
 
     return NextResponse.json(

@@ -1,13 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getConnection } from '@/lib/db/connection'
 import { Post } from '@/database/entities/Post.entity'
+import { Media } from '@/database/entities/Media.entity'
 import { SocialAccount } from '@/database/entities/SocialAccount.entity'
 import { PostPublication } from '@/database/entities/PostPublication.entity'
 import { User } from '@/database/entities/User.entity'
 import { withAuth } from '@/lib/auth/middleware'
-import { publishTextPost } from '@/lib/services/threads-publisher.service'
-import { Platform, PostStatus } from '@/database/entities/enums'
+import {
+  publishTextPost,
+  publishImagePost,
+  publishVideoPost,
+} from '@/lib/services/threads-publisher.service'
+import { Platform, PostStatus, ContentType } from '@/database/entities/enums'
 import type { ApiResponse } from '@/lib/types'
+import { validateMediaUrl, getOwnHostname } from '@/lib/utils/content-parser'
 
 interface PublishRequest {
   channelId: string
@@ -21,7 +27,7 @@ interface PublishResponse {
 
 /**
  * POST /api/posts/:id/publish/threads
- * Publish a post to a specific Threads channel
+ * Publish a post (text, image, or video) to a specific Threads channel
  */
 async function publishToThreads(
   request: Request,
@@ -51,12 +57,14 @@ async function publishToThreads(
 
     const dataSource = await getConnection()
     const postRepository = dataSource.getRepository(Post)
+    const mediaRepository = dataSource.getRepository(Media)
     const socialAccountRepository = dataSource.getRepository(SocialAccount)
     const postPublicationRepository = dataSource.getRepository(PostPublication)
 
-    // Get the post
+    // Get the post with media relation
     const post = await postRepository.findOne({
       where: { id: postId, userId: user.id },
+      relations: ['media'],
     })
 
     if (!post) {
@@ -111,10 +119,92 @@ async function publishToThreads(
     let platformPostId: string
 
     try {
+      // Get first media item if exists
+      const mediaItem = post.media?.[0]
+
+      // Get own hostname for validation (allows uploads from /api/upload to work in production)
+      const ownHostname = getOwnHostname()
+
+      // Validate media URLs before publishing to Threads
+      if (post.contentType === ContentType.IMAGE && mediaItem?.url) {
+        const validation = validateMediaUrl(mediaItem.url, {
+          allowOwnHost: true,
+          ownHostname,
+        })
+        if (!validation.valid) {
+          return NextResponse.json(
+            {
+              data: null,
+              status: 400,
+              success: false,
+              message: `Cannot publish post: ${validation.error}. Please update the media URL to a publicly accessible URL.`,
+            } as unknown as ApiResponse<PublishResponse>,
+            { status: 400 }
+          )
+        }
+      }
+
+      if (post.contentType === ContentType.VIDEO && mediaItem?.url) {
+        const validation = validateMediaUrl(mediaItem.url, {
+          allowOwnHost: true,
+          ownHostname,
+        })
+        if (!validation.valid) {
+          return NextResponse.json(
+            {
+              data: null,
+              status: 400,
+              success: false,
+              message: `Cannot publish post: ${validation.error}. Please update the media URL to a publicly accessible URL.`,
+            } as unknown as ApiResponse<PublishResponse>,
+            { status: 400 }
+          )
+        }
+      }
+
       // Publish to Threads based on content type
-      platformPostId = await publishTextPost(socialAccount.accessToken, socialAccount.platformUserId, {
-        text: post.content,
-      })
+      switch (post.contentType) {
+        case ContentType.IMAGE:
+          if (!mediaItem?.url) {
+            throw new Error('Image URL is required for image posts')
+          }
+          platformPostId = await publishImagePost(
+            socialAccount.accessToken,
+            socialAccount.platformUserId,
+            {
+              text: post.content || undefined,
+              imageUrl: mediaItem.url,
+              altText: mediaItem.altText,
+            }
+          )
+          break
+
+        case ContentType.VIDEO:
+          if (!mediaItem?.url) {
+            throw new Error('Video URL is required for video posts')
+          }
+          platformPostId = await publishVideoPost(
+            socialAccount.accessToken,
+            socialAccount.platformUserId,
+            {
+              text: post.content || undefined,
+              videoUrl: mediaItem.url,
+              altText: mediaItem.altText,
+            }
+          )
+          break
+
+        case ContentType.TEXT:
+        default:
+          platformPostId = await publishTextPost(
+            socialAccount.accessToken,
+            socialAccount.platformUserId,
+            {
+              text: post.content,
+            }
+          )
+          break
+      }
 
       // Create publication record
       const publication = postPublicationRepository.create({
@@ -123,9 +213,16 @@ async function publishToThreads(
         platform: Platform.THREADS,
         status: PostStatus.PUBLISHED,
         platformPostId,
+        platformPostUrl: `https://threads.net/${socialAccount.username}/post/${platformPostId}`,
         publishedAt: new Date(),
+        lastSyncedAt: new Date(),
       })
       await postPublicationRepository.save(publication)
+
+      // Update post status
+      post.status = PostStatus.PUBLISHED
+      post.publishedAt = new Date()
+      await postRepository.save(post)
 
       return NextResponse.json({
         data: {
@@ -135,7 +232,7 @@ async function publishToThreads(
         },
         status: 200,
         success: true,
-        message: 'Post published to Threads successfully',
+        message: `Post published to Threads successfully (${post.contentType})`,
       } as unknown as ApiResponse<PublishResponse>)
     } catch (publishError) {
       // Create failed publication record
@@ -148,6 +245,12 @@ async function publishToThreads(
         failedAt: new Date(),
       })
       await postPublicationRepository.save(publication)
+
+      // Update post status to failed
+      post.status = PostStatus.FAILED
+      post.failedAt = new Date()
+      post.errorMessage = publishError instanceof Error ? publishError.message : 'Unknown error'
+      await postRepository.save(post)
 
       throw publishError
     }

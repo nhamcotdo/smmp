@@ -1,18 +1,27 @@
 import { NextResponse } from 'next/server'
 import { getConnection } from '@/lib/db/connection'
 import { Post } from '@/database/entities/Post.entity'
+import { Media } from '@/database/entities/Media.entity'
 import { SocialAccount } from '@/database/entities/SocialAccount.entity'
 import { PostPublication } from '@/database/entities/PostPublication.entity'
 import { User } from '@/database/entities/User.entity'
 import { withAuth } from '@/lib/auth/middleware'
-import { publishTextPost } from '@/lib/services/threads-publisher.service'
+import {
+  publishTextPost,
+  publishImagePost,
+  publishVideoPost,
+} from '@/lib/services/threads-publisher.service'
 import { buildThreadsPostUrl } from '@/lib/services/threads.service'
-import { Platform, PostStatus, ContentType } from '@/database/entities/enums'
+import { Platform, PostStatus, ContentType, MediaType } from '@/database/entities/enums'
 import type { ApiResponse } from '@/lib/types'
+import { validateMediaUrl, getOwnHostname } from '@/lib/utils/content-parser'
 
 interface PublishRequest {
   content: string
   channelId: string
+  imageUrl?: string
+  videoUrl?: string
+  altText?: string
 }
 
 interface PublishResponse {
@@ -28,15 +37,15 @@ interface PublishResponse {
 async function publishToThreads(request: Request, user: User) {
   try {
     const body = await request.json() as PublishRequest
-    const { content, channelId } = body
+    const { content, channelId, imageUrl, videoUrl, altText } = body
 
-    if (!content?.trim()) {
+    if (!content?.trim() && !imageUrl && !videoUrl) {
       return NextResponse.json(
         {
           data: null,
           status: 400,
           success: false,
-          message: 'Content is required',
+          message: 'Content or media is required',
         } as unknown as ApiResponse<PublishResponse>,
         { status: 400 }
       )
@@ -52,6 +61,47 @@ async function publishToThreads(request: Request, user: User) {
         } as unknown as ApiResponse<PublishResponse>,
         { status: 400 }
       )
+    }
+
+    // Get own hostname for validation (allows uploads from /api/upload to work in production)
+    const ownHostname = getOwnHostname()
+
+    // Validate image URL is publicly accessible
+    if (imageUrl) {
+      const imageValidation = validateMediaUrl(imageUrl, {
+        allowOwnHost: true,
+        ownHostname,
+      })
+      if (!imageValidation.valid) {
+        return NextResponse.json(
+          {
+            data: null,
+            status: 400,
+            success: false,
+            message: `Invalid image URL: ${imageValidation.error}. Use a publicly accessible URL or upload via the form.`,
+          } as unknown as ApiResponse<PublishResponse>,
+          { status: 400 }
+        )
+      }
+    }
+
+    // Validate video URL is publicly accessible
+    if (videoUrl) {
+      const videoValidation = validateMediaUrl(videoUrl, {
+        allowOwnHost: true,
+        ownHostname,
+      })
+      if (!videoValidation.valid) {
+        return NextResponse.json(
+          {
+            data: null,
+            status: 400,
+            success: false,
+            message: `Invalid video URL: ${videoValidation.error}. Use a publicly accessible URL or upload via the form.`,
+          } as unknown as ApiResponse<PublishResponse>,
+          { status: 400 }
+        )
+      }
     }
 
     const dataSource = await getConnection()
@@ -98,23 +148,80 @@ async function publishToThreads(request: Request, user: User) {
       )
     }
 
+    // Determine content type
+    let finalContentType = ContentType.TEXT
+    if (imageUrl) {
+      finalContentType = ContentType.IMAGE
+    } else if (videoUrl) {
+      finalContentType = ContentType.VIDEO
+    }
+
     // Create the post first
     const post = postRepository.create({
       userId: user.id,
       content: trimmedContent,
       status: PostStatus.PUBLISHED,
-      contentType: ContentType.TEXT,
+      contentType: finalContentType,
     })
     await postRepository.save(post)
+
+    // Create media record if image or video URL provided
+    if (imageUrl || videoUrl) {
+      const mediaRepository = dataSource.getRepository(Media)
+      const media = mediaRepository.create({
+        postId: post.id,
+        type: finalContentType === ContentType.IMAGE ? MediaType.IMAGE : MediaType.VIDEO,
+        url: imageUrl || videoUrl || '',
+        altText: altText || undefined,
+        mimeType: finalContentType === ContentType.IMAGE ? 'image/jpeg' : 'video/mp4',
+        order: 0,
+      })
+      await mediaRepository.save(media)
+    }
 
     let platformPostId: string
     let publicationId: string
 
     try {
-      // Publish to Threads
-      platformPostId = await publishTextPost(socialAccount.accessToken, socialAccount.platformUserId, {
-        text: trimmedContent,
-      })
+      // Publish to Threads based on content type
+      switch (finalContentType) {
+        case ContentType.IMAGE:
+          if (!imageUrl) {
+            throw new Error('Image URL is required for image posts')
+          }
+          platformPostId = await publishImagePost(
+            socialAccount.accessToken,
+            socialAccount.platformUserId,
+            {
+              text: trimmedContent || undefined,
+              imageUrl,
+              altText,
+            }
+          )
+          break
+
+        case ContentType.VIDEO:
+          if (!videoUrl) {
+            throw new Error('Video URL is required for video posts')
+          }
+          platformPostId = await publishVideoPost(
+            socialAccount.accessToken,
+            socialAccount.platformUserId,
+            {
+              text: trimmedContent || undefined,
+              videoUrl,
+              altText,
+            }
+          )
+          break
+
+        case ContentType.TEXT:
+        default:
+          platformPostId = await publishTextPost(socialAccount.accessToken, socialAccount.platformUserId, {
+            text: trimmedContent,
+          })
+          break
+      }
 
       // Create publication record
       const publication = postPublicationRepository.create({

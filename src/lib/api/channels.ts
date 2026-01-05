@@ -164,7 +164,15 @@ export async function publishToThreads(postId: string, channelId: string): Promi
 /**
  * Create and publish a post to Threads in one request
  */
-export async function createAndPublishToThreads(content: string, channelId: string): Promise<{
+export async function createAndPublishToThreads(
+  content: string,
+  channelId: string,
+  options?: {
+    imageUrl?: string
+    videoUrl?: string
+    altText?: string
+  }
+): Promise<{
   publicationId: string
   platformPostId: string
   platformUrl: string
@@ -175,7 +183,13 @@ export async function createAndPublishToThreads(content: string, channelId: stri
     platformUrl: string
   }>('/publish/threads', {
     method: 'POST',
-    body: JSON.stringify({ content, channelId }),
+    body: JSON.stringify({
+      content,
+      channelId,
+      ...(options?.imageUrl && { imageUrl: options.imageUrl }),
+      ...(options?.videoUrl && { videoUrl: options.videoUrl }),
+      ...(options?.altText && { altText: options.altText }),
+    }),
   })
 
   if (!response.success || !response.data) {

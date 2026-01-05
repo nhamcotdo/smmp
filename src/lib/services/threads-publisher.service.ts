@@ -67,6 +67,7 @@ export async function publishImagePost(
     text: params.text || '',
     image_url: params.imageUrl,
     media_type: ThreadsMediaType.IMAGE,
+    ...(params.altText && { alt_text: params.altText }),
   }
 
   const container = await createContainer(accessToken, userId, containerParams)
@@ -93,12 +94,14 @@ export async function publishVideoPost(
     text: params.text || '',
     video_url: params.videoUrl,
     media_type: ThreadsMediaType.VIDEO,
+    ...(params.altText && { alt_text: params.altText }),
   }
 
   const container = await createContainer(accessToken, userId, containerParams)
 
-  // Wait a moment for container to be ready
-  await new Promise((resolve) => setTimeout(resolve, 3000))
+  // Wait for Threads API to fetch and process the video
+  // R2 URLs may take longer to be accessible by Threads servers
+  await new Promise((resolve) => setTimeout(resolve, 120000))
 
   const result = await publishContainer(accessToken, userId, {
     container_id: container.id,
