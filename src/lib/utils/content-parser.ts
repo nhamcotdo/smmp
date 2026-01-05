@@ -2,6 +2,34 @@
  * Content parsing utilities for social media posts
  */
 
+import { ContentType } from '@/database/entities/enums'
+
+/**
+ * Validate media URL with hostname-aware public accessibility check
+ * Consolidates duplicated validation logic across endpoints
+ * @param url - The URL to validate
+ * @param contentType - The content type being validated
+ * @returns Validation result with valid flag and optional error message
+ */
+export function validateMediaUrlForPublishing(
+  url: string | undefined,
+  contentType: ContentType
+): { valid: boolean; error?: string } {
+  if (!url) {
+    // Text posts don't need URLs
+    if (contentType === ContentType.TEXT) {
+      return { valid: true }
+    }
+    return { valid: false, error: 'Media URL is required' }
+  }
+
+  const ownHostname = getOwnHostname()
+  return validateMediaUrl(url, {
+    allowOwnHost: true,
+    ownHostname,
+  })
+}
+
 /**
  * Validate that a URL is publicly accessible (not localhost, blob, or private IP)
  * @param url - URL to validate
@@ -35,7 +63,7 @@ export function validateMediaUrl(
       hostname === '127.0.0.1' ||
       hostname.startsWith('192.168.') ||
       hostname.startsWith('10.') ||
-      hostname.startsWith('172.16.') ||
+      /^172\.(1[6-9]|2[0-9]|3[01])\./.test(hostname) ||
       hostname === '[::1]'
 
     if (isLocalhost) {

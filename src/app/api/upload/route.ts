@@ -18,6 +18,7 @@ interface PresignedUrlResponse {
 interface PresignedUrlRequest extends FormData {
   get(name: 'filename'): File | null
   get(name: 'contentType'): string | null
+  get(name: 'fileSize'): string | null
 }
 
 /**
@@ -30,6 +31,7 @@ async function generateUploadUrl(request: Request, user: User) {
     const formData = await request.formData()
     const filename = formData.get('filename')
     const contentType = formData.get('contentType')
+    const fileSizeStr = formData.get('fileSize')
 
     // Validate filename is a string
     if (typeof filename !== 'string') {
@@ -55,6 +57,46 @@ async function generateUploadUrl(request: Request, user: User) {
         } as unknown as ApiResponse<PresignedUrlResponse>,
         { status: 400 }
       )
+    }
+
+    // Validate file size if provided
+    if (fileSizeStr !== null) {
+      if (typeof fileSizeStr !== 'string') {
+        return NextResponse.json(
+          {
+            data: null,
+            status: 400,
+            success: false,
+            message: 'FileSize must be a string if provided',
+          } as unknown as ApiResponse<PresignedUrlResponse>,
+          { status: 400 }
+        )
+      }
+
+      const fileSize = parseInt(fileSizeStr, 10)
+      if (isNaN(fileSize)) {
+        return NextResponse.json(
+          {
+            data: null,
+            status: 400,
+            success: false,
+            message: 'FileSize must be a valid number',
+          } as unknown as ApiResponse<PresignedUrlResponse>,
+          { status: 400 }
+        )
+      }
+
+      if (fileSize > MAX_FILE_SIZE) {
+        return NextResponse.json(
+          {
+            data: null,
+            status: 400,
+            success: false,
+            message: `File size must be less than ${MAX_FILE_SIZE / 1024 / 1024}MB`,
+          } as unknown as ApiResponse<PresignedUrlResponse>,
+          { status: 400 }
+        )
+      }
     }
 
     // Check if R2 is configured

@@ -14,7 +14,7 @@ import {
 import { buildThreadsPostUrl } from '@/lib/services/threads.service'
 import { Platform, PostStatus, ContentType, MediaType } from '@/database/entities/enums'
 import type { ApiResponse } from '@/lib/types'
-import { validateMediaUrl, getOwnHostname } from '@/lib/utils/content-parser'
+import { validateMediaUrlForPublishing } from '@/lib/utils/content-parser'
 
 interface PublishRequest {
   content: string
@@ -63,41 +63,31 @@ async function publishToThreads(request: Request, user: User) {
       )
     }
 
-    // Get own hostname for validation (allows uploads from /api/upload to work in production)
-    const ownHostname = getOwnHostname()
-
-    // Validate image URL is publicly accessible
+    // Validate media URLs are publicly accessible
     if (imageUrl) {
-      const imageValidation = validateMediaUrl(imageUrl, {
-        allowOwnHost: true,
-        ownHostname,
-      })
-      if (!imageValidation.valid) {
+      const validation = validateMediaUrlForPublishing(imageUrl, ContentType.IMAGE)
+      if (!validation.valid) {
         return NextResponse.json(
           {
             data: null,
             status: 400,
             success: false,
-            message: `Invalid image URL: ${imageValidation.error}. Use a publicly accessible URL or upload via the form.`,
+            message: `Invalid image URL: ${validation.error}. Use a publicly accessible URL or upload via the form.`,
           } as unknown as ApiResponse<PublishResponse>,
           { status: 400 }
         )
       }
     }
 
-    // Validate video URL is publicly accessible
     if (videoUrl) {
-      const videoValidation = validateMediaUrl(videoUrl, {
-        allowOwnHost: true,
-        ownHostname,
-      })
-      if (!videoValidation.valid) {
+      const validation = validateMediaUrlForPublishing(videoUrl, ContentType.VIDEO)
+      if (!validation.valid) {
         return NextResponse.json(
           {
             data: null,
             status: 400,
             success: false,
-            message: `Invalid video URL: ${videoValidation.error}. Use a publicly accessible URL or upload via the form.`,
+            message: `Invalid video URL: ${validation.error}. Use a publicly accessible URL or upload via the form.`,
           } as unknown as ApiResponse<PublishResponse>,
           { status: 400 }
         )
