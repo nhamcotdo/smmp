@@ -108,6 +108,7 @@ export interface ThreadsUser {
 export interface ThreadsPost {
   id: string
   text?: string
+  media_type?: string
   media?: {
     image_url?: string
     video_url?: string

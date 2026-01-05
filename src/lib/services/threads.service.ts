@@ -217,7 +217,7 @@ export async function getUserThreads(
 export async function getThreadInsights(
   accessToken: string,
   threadId: string,
-  metrics: string[] = ['views', 'likes', 'comments', 'replies', 'quotes', 'reposts']
+  metrics: string[] = ['views', 'likes', 'shares', 'quotes', 'replies', 'reposts']
 ): Promise<ThreadsInsights> {
   const config = getConfig()
   const params = new URLSearchParams({
@@ -244,7 +244,7 @@ export async function getThreadInsights(
 export async function getAccountInsights(
   accessToken: string,
   userId: string,
-  metrics: string[] = ['views', 'likes', 'comments', 'replies', 'quotes', 'reposts']
+  metrics: string[] = ['views', 'likes', 'shares', 'quotes', 'replies', 'reposts']
 ): Promise<ThreadsAccountInsights> {
   const config = getConfig()
   const params = new URLSearchParams({
@@ -298,6 +298,44 @@ export async function getUserProfile(
  */
 export function buildThreadsPostUrl(username: string, postId: string): string {
   return `https://threads.net/${username}/post/${postId}`
+}
+
+/**
+ * Extract metric value from Threads insights response
+ * @param insights - Threads API insights response
+ * @param metricName - Name of the metric to extract
+ * @returns Metric value or 0 if not found
+ */
+export function extractMetricValue(
+  insights: ThreadsInsights | ThreadsAccountInsights,
+  metricName: string
+): number {
+  return insights.metrics?.find((m) => m.name === metricName)?.value ?? 0
+}
+
+/**
+ * Extract all standard metrics from Threads insights response
+ * @param insights - Threads API insights response
+ * @returns Object with all standard metrics
+ */
+export function extractAllMetrics(
+  insights: ThreadsInsights | ThreadsAccountInsights
+): {
+  views: number
+  likes: number
+  shares: number
+  replies: number
+  quotes: number
+  reposts: number
+} {
+  return {
+    views: extractMetricValue(insights, 'views'),
+    likes: extractMetricValue(insights, 'likes'),
+    shares: extractMetricValue(insights, 'shares'),
+    replies: extractMetricValue(insights, 'replies'),
+    quotes: extractMetricValue(insights, 'quotes'),
+    reposts: extractMetricValue(insights, 'reposts'),
+  }
 }
 
 /**

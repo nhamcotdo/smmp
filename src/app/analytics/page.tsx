@@ -30,16 +30,18 @@ interface PostAnalytics {
   publications: {
     platform: string
     platformPostId: string | null
+    platformPostUrl?: string
     status: string
     publishedAt: string | null
     analytics?: {
+      views: number
       likes: number
-      comments: number
       shares: number
-      impressions: number
-      reach: number
-      engagementRate: number
+      replies: number
+      quotes: number
+      reposts: number
     }
+    analyticsError?: string
   }[]
 }
 
@@ -290,9 +292,9 @@ export default function AnalyticsPage() {
                           <span className="text-sm font-medium text-zinc-900 dark:text-zinc-50">
                             {pub.platform}
                           </span>
-                          {pub.platformPostId && (
+                          {pub.platformPostUrl && (
                             <a
-                              href={`https://threads.net/@${pub.platformPostId}`}
+                              href={pub.platformPostUrl}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="text-xs text-blue-600 hover:underline dark:text-blue-400"
@@ -301,16 +303,23 @@ export default function AnalyticsPage() {
                             </a>
                           )}
                         </div>
-                        {pub.analytics && (
+                        {pub.analyticsError ? (
+                          <span className="text-xs text-red-600 dark:text-red-400">
+                            Analytics unavailable
+                          </span>
+                        ) : pub.analytics ? (
                           <div className="flex gap-4 text-sm text-zinc-600 dark:text-zinc-400">
+                            <span>👁️ {formatNumber(pub.analytics.views)}</span>
                             <span>❤️ {formatNumber(pub.analytics.likes)}</span>
-                            <span>💬 {formatNumber(pub.analytics.comments)}</span>
-                            <span>🔄 {formatNumber(pub.analytics.shares)}</span>
-                            <span>👁️ {formatNumber(pub.analytics.impressions)}</span>
-                            <span className="font-medium">
-                              {pub.analytics.engagementRate.toFixed(2)}%
-                            </span>
+                            <span>💬 {formatNumber(pub.analytics.shares)}</span>
+                            <span>↩️ {formatNumber(pub.analytics.replies)}</span>
+                            <span>❝ {formatNumber(pub.analytics.quotes)}</span>
+                            <span>🔄 {formatNumber(pub.analytics.reposts)}</span>
                           </div>
+                        ) : (
+                          <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                            No analytics data
+                          </span>
                         )}
                       </div>
                     ))}

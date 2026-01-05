@@ -7,6 +7,7 @@ import { SocialAccount } from '@/database/entities/SocialAccount.entity'
 import { User } from '@/database/entities/User.entity'
 import { withAuth } from '@/lib/auth/middleware'
 import { PostStatus, Platform } from '@/database/entities/enums'
+import { getThreadInsights, extractAllMetrics } from '@/lib/services/threads.service'
 import type { ApiResponse } from '@/lib/types'
 
 interface AnalyticsOverview {
@@ -34,16 +35,18 @@ interface PostAnalytics {
   publications: {
     platform: string
     platformPostId: string | null
+    platformPostUrl?: string
     status: string
     publishedAt: string | null
     analytics?: {
+      views: number
       likes: number
-      comments: number
       shares: number
-      impressions: number
-      reach: number
-      engagementRate: number
+      replies: number
+      quotes: number
+      reposts: number
     }
+    analyticsError?: string
   }[]
 }
 
@@ -147,7 +150,7 @@ async function getAnalyticsOverview(request: Request, user: User) {
 
 /**
  * GET /api/analytics/posts
- * Get analytics for all user's posts
+ * Get analytics for all user's posts with fresh Threads insights
  */
 async function getPostsAnalytics(request: Request, user: User) {
   try {
@@ -157,30 +160,76 @@ async function getPostsAnalytics(request: Request, user: User) {
 
     const dataSource = await getConnection()
     const postRepository = dataSource.getRepository(Post)
-    const analyticsRepository = dataSource.getRepository(Analytics)
+    const socialAccountRepository = dataSource.getRepository(SocialAccount)
 
-    const posts = await postRepository.find({
-      where: { userId: user.id },
-      relations: ['publications'],
-      order: { createdAt: 'DESC' },
-      take: limit,
-      skip: offset,
-    })
+    // Get only published posts with socialAccount relation
+    const posts = await postRepository
+      .createQueryBuilder('post')
+      .leftJoinAndSelect('post.publications', 'publication')
+      .leftJoinAndSelect('publication.socialAccount', 'socialAccount')
+      .where('post.userId = :userId', { userId: user.id })
+      .andWhere('post.status = :status', { status: PostStatus.PUBLISHED })
+      .orderBy('post.createdAt', 'DESC')
+      .take(limit)
+      .skip(offset)
+      .getMany()
 
-    // Get analytics for each publication
     const response: PostAnalytics[] = []
 
     for (const post of posts) {
-      const publicationIds = post.publications.map((p) => p.id)
-      const analyticsRecords = publicationIds.length > 0
-        ? await analyticsRepository
-            .createQueryBuilder('analytics')
-            .where('analytics.postPublicationId IN (:...publicationIds)', { publicationIds })
-            .getMany()
-        : []
+      const publicationsWithAnalytics = await Promise.all(
+        post.publications.map(async (pub) => {
+          // Only fetch fresh insights for Threads publications with platformPostId
+          if (pub.platform === Platform.THREADS && pub.platformPostId && (pub as any).socialAccount) {
+            try {
+              const socialAccount = (pub as any).socialAccount
 
-      const analyticsMap = new Map(
-        analyticsRecords.map((a) => [a.postPublicationId, a])
+              const insights = await getThreadInsights(
+                socialAccount.accessToken,
+                pub.platformPostId
+              )
+
+              const metrics = extractAllMetrics(insights)
+
+              return {
+                platform: pub.platform,
+                platformPostId: pub.platformPostId,
+                platformPostUrl: `https://threads.net/${socialAccount.username}/post/${pub.platformPostId}`,
+                status: pub.status,
+                publishedAt: pub.publishedAt?.toISOString() ?? null,
+                analytics: {
+                  views: metrics.views,
+                  likes: metrics.likes,
+                  shares: metrics.shares,
+                  replies: metrics.replies,
+                  quotes: metrics.quotes,
+                  reposts: metrics.reposts,
+                },
+              }
+            } catch (error) {
+              const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+              console.error(`Failed to fetch insights for post ${post.id}:`, errorMessage)
+
+              return {
+                platform: pub.platform,
+                platformPostId: pub.platformPostId,
+                platformPostUrl: pub.platformPostId ? `https://threads.net/t/${pub.platformPostId}` : undefined,
+                status: pub.status,
+                publishedAt: pub.publishedAt?.toISOString() ?? null,
+                analyticsError: errorMessage,
+              }
+            }
+          }
+
+          // Return publication without analytics for non-Threads or failed fetches
+          return {
+            platform: pub.platform,
+            platformPostId: pub.platformPostId,
+            platformPostUrl: pub.platformPostId ? `https://threads.net/t/${pub.platformPostId}` : undefined,
+            status: pub.status,
+            publishedAt: pub.publishedAt?.toISOString() ?? null,
+          }
+        })
       )
 
       response.push({
@@ -188,24 +237,7 @@ async function getPostsAnalytics(request: Request, user: User) {
         content: post.content,
         status: post.status,
         publishedAt: post.publishedAt?.toISOString() ?? null,
-        publications: post.publications.map((pub) => {
-          const analytics = analyticsMap.get(pub.id)
-
-          return {
-            platform: pub.platform,
-            platformPostId: pub.platformPostId,
-            status: pub.status,
-            publishedAt: pub.publishedAt?.toISOString() ?? null,
-            analytics: analytics ? {
-              likes: analytics.likesCount || 0,
-              comments: analytics.commentsCount || 0,
-              shares: analytics.sharesCount || 0,
-              impressions: analytics.impressionsCount || 0,
-              reach: analytics.reachCount || 0,
-              engagementRate: analytics.engagementRate || 0,
-            } : undefined,
-          }
-        }),
+        publications: publicationsWithAnalytics,
       })
     }
 
