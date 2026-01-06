@@ -34,6 +34,7 @@ export default function CreatePostPage() {
   const [altText, setAltText] = useState('')
   const [mediaUrlInput, setMediaUrlInput] = useState('')
   const [mediaTypeSelector, setMediaTypeSelector] = useState<'image' | 'video' | null>(null)
+  const [isFetchingDouyin, setIsFetchingDouyin] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Load channels on mount
@@ -105,7 +106,7 @@ export default function CreatePostPage() {
     setMediaUrlInput('')
   }
 
-  const handleMediaUrlChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleMediaUrlChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const url = e.target.value
     setMediaUrlInput(url)
     setMediaTypeSelector(null)
@@ -115,6 +116,57 @@ export default function CreatePostPage() {
       return
     }
 
+    // Check if this is a Douyin URL
+    const isDouyinUrl = /douyin\.com|iesdouyin\.com/i.test(url)
+
+    if (isDouyinUrl) {
+      // Fetch Douyin download URL
+      setIsFetchingDouyin(true)
+      setError('')
+
+      try {
+        const response = await fetch('/api/parse/douyin', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url }),
+        })
+
+        const data = await response.json()
+
+        if (!data.success) {
+          throw new Error(data.message || 'Failed to parse Douyin URL')
+        }
+
+        const { type, downloadUrl, imageUrl, videoDesc } = data.data
+
+        // Set preview with download URL
+        if (type === 'video' && downloadUrl) {
+          setMediaPreview({ type: 'video', url: downloadUrl })
+        } else if (type === 'image' && imageUrl && imageUrl.length > 0) {
+          setMediaPreview({ type: 'image', url: imageUrl[0] })
+        } else {
+          throw new Error('No media URL found in Douyin response')
+        }
+
+        // Optionally pre-fill content with video description
+        if (videoDesc && !content) {
+          setContent(videoDesc)
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to parse Douyin URL')
+        setMediaPreview(null)
+      } finally {
+        setIsFetchingDouyin(false)
+      }
+
+      // Clear file input when URL is entered
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
+      return
+    }
+
+    // Regular URL handling (non-Douyin)
     // Detect type from URL extension or query params
     const isImage = /\.(jpg|jpeg|png|gif|webp|avif|bmp)$/i.test(url) ||
                     /[?&](format|ext)=jpg($|&)/i.test(url) ||
@@ -189,7 +241,8 @@ export default function CreatePostPage() {
     setIsPublishing(true)
 
     try {
-      let finalMediaUrl: string | undefined = mediaUrlInput
+      // Use preview URL (contains download_url for Douyin, or blob URL for file uploads)
+      let finalMediaUrl: string | undefined = mediaPreview?.url
 
       // If a file was selected, upload it to R2 via server proxy
       if (mediaPreview?.file) {
@@ -476,15 +529,23 @@ export default function CreatePostPage() {
                         type="text"
                         value={mediaUrlInput}
                         onChange={handleMediaUrlChange}
-                        placeholder="Paste image or video URL..."
+                        placeholder="Paste image or video URL... (Douyin links supported)"
                         className="block w-full rounded-md border border-zinc-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
+                        disabled={isFetchingDouyin}
                       />
-                      <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-                        Supports: JPG, PNG, GIF, WEBP, MP4, WEBM, MOV, AVI
-                      </p>
+                      <div className="mt-1 flex items-center justify-between">
+                        <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                          Supports: JPG, PNG, GIF, WEBP, MP4, WEBM, MOV, AVI, Douyin links
+                        </p>
+                        {isFetchingDouyin && (
+                          <p className="text-xs text-blue-600 dark:text-blue-400">
+                            Fetching Douyin URL...
+                          </p>
+                        )}
+                      </div>
 
                       {/* Type Selector - shown when URL entered but type not detected */}
-                      {mediaUrlInput && !mediaPreview && (
+                      {mediaUrlInput && !mediaPreview && !isFetchingDouyin && (
                         <div className="mt-3 rounded-md bg-amber-50 p-3 dark:bg-amber-900/20">
                           <p className="mb-2 text-xs font-medium text-amber-800 dark:text-amber-200">
                             Couldn't detect media type. Please select:

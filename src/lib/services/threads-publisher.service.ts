@@ -101,7 +101,7 @@ export async function publishVideoPost(
 
   // Wait for Threads API to fetch and process the video
   // R2 URLs may take longer to be accessible by Threads servers
-  await new Promise((resolve) => setTimeout(resolve, 120000))
+  await new Promise((resolve) => setTimeout(resolve, 30000))
 
   const result = await publishContainer(accessToken, userId, {
     container_id: container.id,

@@ -214,6 +214,17 @@ async function publishToThreads(request: Request, user: User) {
           break
       }
 
+      // Validate platformPostId was returned
+      if (!platformPostId) {
+        throw new Error(
+          finalContentType === ContentType.IMAGE
+            ? 'Failed to create image container. The image URL may be invalid or inaccessible.'
+            : finalContentType === ContentType.VIDEO
+            ? 'Failed to create video container. The video URL may be invalid, inaccessible, or in an unsupported format.'
+            : 'Failed to create post container. Please try again.'
+        )
+      }
+
       // Create publication record
       const publication = postPublicationRepository.create({
         postId: post.id,
