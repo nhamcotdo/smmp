@@ -16,7 +16,6 @@ import { buildThreadsPostUrl } from '@/lib/services/threads.service'
 import { Platform, PostStatus, ContentType, MediaType } from '@/database/entities/enums'
 import type { ApiResponse } from '@/lib/types'
 import { validateMediaUrlForPublishing } from '@/lib/utils/content-parser'
-import { deleteFromR2 } from '@/lib/services/r2-presigned.service'
 
 interface PublishRequest {
   content: string
@@ -227,53 +226,23 @@ async function publishToThreads(request: Request, user: User) {
       await postPublicationRepository.save(publication)
       publicationId = publication.id
 
-      // Link uploaded media to post and delete from R2 after successful publish
+      // Link uploaded media to post for reference
       const mediaUrl = imageUrl || videoUrl
       if (mediaUrl) {
-        // Use transaction to prevent race conditions
-        await dataSource.transaction(async (transactionalEntityManager) => {
-          const uploadedMedia = await transactionalEntityManager.findOne(UploadedMedia, {
-            where: {
-              userId: user.id,
-              url: mediaUrl,
-              status: 'active',
-            },
-            lock: { mode: 'pessimistic_write' }, // SELECT FOR UPDATE to prevent concurrent processing
-          })
-
-          if (uploadedMedia) {
-            // Double-check status inside transaction
-            if (uploadedMedia.status !== 'active') {
-              console.warn(`Media ${uploadedMedia.id} already processed, skipping`)
-              return
-            }
-
-            // Link to post
-            uploadedMedia.postId = post.id
-            await transactionalEntityManager.save(UploadedMedia, uploadedMedia)
-
-            // Delete from R2 after database update
-            if (uploadedMedia.r2Key) {
-              try {
-                await deleteFromR2(uploadedMedia.r2Key)
-                // Mark as deleted
-                uploadedMedia.status = 'deleted'
-                uploadedMedia.deletedAt = new Date()
-                await transactionalEntityManager.save(UploadedMedia, uploadedMedia)
-              } catch (deleteError) {
-                console.error('Failed to delete from R2 after publish:', deleteError)
-                // Mark for cleanup instead of deleted
-                uploadedMedia.status = 'expired'
-                uploadedMedia.metadata = {
-                  ...uploadedMedia.metadata,
-                  cleanupError: deleteError instanceof Error ? deleteError.message : 'Unknown error',
-                  cleanupFailedAt: new Date().toISOString(),
-                }
-                await transactionalEntityManager.save(UploadedMedia, uploadedMedia)
-              }
-            }
-          }
+        const uploadedMediaRepository = dataSource.getRepository(UploadedMedia)
+        const uploadedMedia = await uploadedMediaRepository.findOne({
+          where: {
+            userId: user.id,
+            url: mediaUrl,
+            status: 'active',
+          },
         })
+
+        if (uploadedMedia) {
+          // Link to post (media remains in R2 for reuse)
+          uploadedMedia.postId = post.id
+          await uploadedMediaRepository.save(uploadedMedia)
+        }
       }
 
       return NextResponse.json({
