@@ -14,9 +14,24 @@ interface DeleteResponse {
  * DELETE /api/media/:id
  * Delete an uploaded media from R2 and mark as deleted in database
  */
-async function deleteMedia(request: Request, user: User, { params }: { params: { id: string } }) {
+async function deleteMedia(
+  request: Request,
+  user: User,
+  context?: { params: Promise<Record<string, string>> },
+) {
   try {
-    const { id } = params
+    const { id } = await context?.params ?? {}
+    if (!id) {
+      return NextResponse.json(
+        {
+          data: null,
+          status: 400,
+          success: false,
+          message: 'Media ID is required',
+        } as unknown as ApiResponse<DeleteResponse>,
+        { status: 400 }
+      )
+    }
 
     const dataSource = await getConnection()
     const uploadedMediaRepository = dataSource.getRepository(UploadedMedia)
@@ -38,8 +53,21 @@ async function deleteMedia(request: Request, user: User, { params }: { params: {
       )
     }
 
+    // Check if already deleted
+    if (media.status === 'deleted') {
+      return NextResponse.json(
+        {
+          data: null,
+          status: 400,
+          success: false,
+          message: 'Media already deleted',
+        } as unknown as ApiResponse<DeleteResponse>,
+        { status: 400 }
+      )
+    }
+
     // Delete from R2
-    if (media.r2Key) {
+    if (media.r2Key && media.status === 'active') {
       try {
         await deleteFromR2(media.r2Key)
       } catch (error) {
