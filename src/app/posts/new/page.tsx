@@ -33,6 +33,7 @@ export default function CreatePostPage() {
   const [mediaPreview, setMediaPreview] = useState<MediaPreview | null>(null)
   const [altText, setAltText] = useState('')
   const [mediaUrlInput, setMediaUrlInput] = useState('')
+  const [mediaTypeSelector, setMediaTypeSelector] = useState<'image' | 'video' | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Load channels on mount
@@ -107,28 +108,43 @@ export default function CreatePostPage() {
   const handleMediaUrlChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const url = e.target.value
     setMediaUrlInput(url)
+    setMediaTypeSelector(null)
 
     if (!url) {
       setMediaPreview(null)
       return
     }
 
-    // Detect type from URL extension
-    const isImage = /\.(jpg|jpeg|png|gif|webp|avif|bmp)$/i.test(url)
-    const isVideo = /\.(mp4|webm|mov|avi|mkv|flv|wmv|m4v|ogv|ts)$/i.test(url)
+    // Detect type from URL extension or query params
+    const isImage = /\.(jpg|jpeg|png|gif|webp|avif|bmp)$/i.test(url) ||
+                    /[?&](format|ext)=jpg($|&)/i.test(url) ||
+                    url.includes('/image/') ||
+                    url.includes('/images/')
+    const isVideo = /\.(mp4|webm|mov|avi|mkv|flv|wmv|m4v|ogv|ts)$/i.test(url) ||
+                    /[?&](format|ext)=mp4($|&)/i.test(url) ||
+                    url.includes('/video/') ||
+                    url.includes('/videos/')
 
     if (isImage) {
       setMediaPreview({ type: 'image', url })
     } else if (isVideo) {
       setMediaPreview({ type: 'video', url })
     } else {
+      // Unknown type - show selector for user to choose
       setMediaPreview(null)
+      setMediaTypeSelector(null)
     }
 
     // Clear file input when URL is entered
     if (fileInputRef.current) {
       fileInputRef.current.value = ''
     }
+  }
+
+  const handleMediaTypeSelect = (type: 'image' | 'video') => {
+    if (!mediaUrlInput) return
+    setMediaPreview({ type, url: mediaUrlInput })
+    setMediaTypeSelector(type)
   }
 
   const clearMedia = () => {
@@ -139,6 +155,7 @@ export default function CreatePostPage() {
     setMediaPreview(null)
     setAltText('')
     setMediaUrlInput('')
+    setMediaTypeSelector(null)
     if (fileInputRef.current) {
       fileInputRef.current.value = ''
     }
@@ -465,6 +482,31 @@ export default function CreatePostPage() {
                       <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
                         Supports: JPG, PNG, GIF, WEBP, MP4, WEBM, MOV, AVI
                       </p>
+
+                      {/* Type Selector - shown when URL entered but type not detected */}
+                      {mediaUrlInput && !mediaPreview && (
+                        <div className="mt-3 rounded-md bg-amber-50 p-3 dark:bg-amber-900/20">
+                          <p className="mb-2 text-xs font-medium text-amber-800 dark:text-amber-200">
+                            Couldn't detect media type. Please select:
+                          </p>
+                          <div className="flex gap-3">
+                            <button
+                              type="button"
+                              onClick={() => handleMediaTypeSelect('image')}
+                              className="flex-1 rounded-md border border-amber-300 bg-white px-3 py-2 text-sm font-medium text-amber-700 hover:bg-amber-50 dark:border-amber-700 dark:bg-zinc-800 dark:text-amber-300 dark:hover:bg-amber-900/20"
+                            >
+                              📷 Image
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleMediaTypeSelect('video')}
+                              className="flex-1 rounded-md border border-amber-300 bg-white px-3 py-2 text-sm font-medium text-amber-700 hover:bg-amber-50 dark:border-amber-700 dark:bg-zinc-800 dark:text-amber-300 dark:hover:bg-amber-900/20"
+                            >
+                              🎥 Video
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 ) : (
@@ -555,7 +597,7 @@ export default function CreatePostPage() {
               </Link>
               <button
                 type="submit"
-                disabled={isPublishing || (publishMode === 'now' ? !selectedChannel : !scheduledFor) || !content.trim()}
+                disabled={isPublishing || (publishMode === 'now' ? !selectedChannel : !scheduledFor) || (!content.trim() && !mediaPreview)}
                 className="rounded-md bg-blue-600 px-6 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isPublishing
