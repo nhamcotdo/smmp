@@ -56,7 +56,7 @@ export default function Home() {
         {isAuthenticated && user ? (
           <div className="w-full">
             {/* Quick Actions */}
-            <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5">
               <Link
                 href="/channels"
                 className="group rounded-lg border-2 border-dashed border-zinc-300 bg-zinc-50 p-6 text-center transition-colors hover:border-blue-400 hover:bg-blue-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:border-blue-500 dark:hover:bg-blue-900/20"
@@ -93,6 +93,19 @@ export default function Home() {
                 </h3>
                 <p className="text-sm text-zinc-600 dark:text-zinc-400">
                   View scheduled posts
+                </p>
+              </Link>
+
+              <Link
+                href="/media"
+                className="group rounded-lg border-2 border-dashed border-zinc-300 bg-zinc-50 p-6 text-center transition-colors hover:border-pink-400 hover:bg-pink-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:border-pink-500 dark:hover:bg-pink-900/20"
+              >
+                <div className="text-4xl mb-2">📁</div>
+                <h3 className="font-semibold text-zinc-900 dark:text-zinc-50 group-hover:text-pink-600 dark:group-hover:text-pink-400">
+                  Media Library
+                </h3>
+                <p className="text-sm text-zinc-600 dark:text-zinc-400">
+                  Manage uploaded media
                 </p>
               </Link>
 
