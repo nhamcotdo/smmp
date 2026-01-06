@@ -73,7 +73,8 @@ function getStringToSign(
   signedHeaders: string,
   timestamp: string,
   region: 'auto',
-  service: 's3'
+  service: 's3',
+  payloadHash: string = 'UNSIGNED-PAYLOAD'
 ): string {
   const algorithm = 'AWS4-HMAC-SHA256'
   const credentialScope = `${timestamp.substr(0, 8)}/${region}/${service}/aws4_request`
@@ -85,7 +86,7 @@ function getStringToSign(
     canonicalQuerystring,
     canonicalHeaders,
     signedHeaders,
-    'UNSIGNED-PAYLOAD', // For presigned URLs without payload
+    payloadHash,
   ].join('\n')
 
   const hashedCanonicalRequest = sha256(canonicalRequest).toString('hex')
@@ -236,6 +237,9 @@ export async function deleteFromR2(key: string): Promise<boolean> {
   // Signed headers
   const signedHeaders = 'host'
 
+  // For DELETE requests, use empty payload hash (not UNSIGNED-PAYLOAD)
+  const emptyPayloadHash = sha256('').toString('hex')
+
   // String to sign
   const stringToSign = getStringToSign(
     method,
@@ -245,7 +249,8 @@ export async function deleteFromR2(key: string): Promise<boolean> {
     signedHeaders,
     amzDate,
     region,
-    service
+    service,
+    emptyPayloadHash
   )
 
   // Calculate signature
