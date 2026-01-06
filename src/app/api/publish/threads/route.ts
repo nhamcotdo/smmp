@@ -4,6 +4,7 @@ import { Post } from '@/database/entities/Post.entity'
 import { Media } from '@/database/entities/Media.entity'
 import { SocialAccount } from '@/database/entities/SocialAccount.entity'
 import { PostPublication } from '@/database/entities/PostPublication.entity'
+import { UploadedMedia } from '@/database/entities/UploadedMedia.entity'
 import { User } from '@/database/entities/User.entity'
 import { withAuth } from '@/lib/auth/middleware'
 import {
@@ -15,6 +16,7 @@ import { buildThreadsPostUrl } from '@/lib/services/threads.service'
 import { Platform, PostStatus, ContentType, MediaType } from '@/database/entities/enums'
 import type { ApiResponse } from '@/lib/types'
 import { validateMediaUrlForPublishing } from '@/lib/utils/content-parser'
+import { deleteFromR2 } from '@/lib/services/r2-presigned.service'
 
 interface PublishRequest {
   content: string
@@ -224,6 +226,39 @@ async function publishToThreads(request: Request, user: User) {
       })
       await postPublicationRepository.save(publication)
       publicationId = publication.id
+
+      // Link uploaded media to post and delete from R2 after successful publish
+      const uploadedMediaRepository = dataSource.getRepository(UploadedMedia)
+      const mediaUrl = imageUrl || videoUrl
+      if (mediaUrl) {
+        const uploadedMedia = await uploadedMediaRepository.findOne({
+          where: {
+            userId: user.id,
+            url: mediaUrl,
+            status: 'active',
+          },
+        })
+
+        if (uploadedMedia) {
+          // Link to post
+          uploadedMedia.postId = post.id
+          await uploadedMediaRepository.save(uploadedMedia)
+
+          // Delete from R2 after successful publish
+          if (uploadedMedia.r2Key) {
+            try {
+              await deleteFromR2(uploadedMedia.r2Key)
+              // Mark as deleted in database
+              uploadedMedia.status = 'deleted'
+              uploadedMedia.deletedAt = new Date()
+              await uploadedMediaRepository.save(uploadedMedia)
+            } catch (deleteError) {
+              console.error('Failed to delete from R2 after publish:', deleteError)
+              // Don't fail the publish if R2 delete fails
+            }
+          }
+        }
+      }
 
       return NextResponse.json({
         data: {

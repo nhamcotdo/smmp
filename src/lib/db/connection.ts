@@ -20,6 +20,7 @@ async function loadEntities() {
     { PostPublication },
     { Media },
     { Analytics },
+    { UploadedMedia },
   ] = await Promise.all([
     import('../../database/entities/User.entity'),
     import('../../database/entities/SocialAccount.entity'),
@@ -28,9 +29,10 @@ async function loadEntities() {
     import('../../database/entities/PostPublication.entity'),
     import('../../database/entities/Media.entity'),
     import('../../database/entities/Analytics.entity'),
+    import('../../database/entities/UploadedMedia.entity'),
   ])
 
-  return [User, SocialAccount, RefreshToken, Post, PostPublication, Media, Analytics]
+  return [User, SocialAccount, RefreshToken, Post, PostPublication, Media, Analytics, UploadedMedia]
 }
 
 async function createDataSource(): Promise<DataSource> {

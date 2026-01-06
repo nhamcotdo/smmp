@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server'
 import { withAuth } from '@/lib/auth/middleware'
+import { getConnection } from '@/lib/db/connection'
 import { User } from '@/database/entities/User.entity'
+import { UploadedMedia } from '@/database/entities/UploadedMedia.entity'
+import { MediaType } from '@/database/entities/enums'
 import type { ApiResponse } from '@/lib/types'
 import { generatePresignedUrl, isR2Configured } from '@/lib/services/r2-presigned.service'
 
@@ -110,6 +113,26 @@ async function proxyUpload(request: Request, user: User) {
     } else {
       throw new Error('Either R2_PUBLIC_DOMAIN or R2_BUCKET_NAME must be set')
     }
+
+    // Determine media type
+    const isImage = ALLOWED_IMAGE_TYPES.includes(file.type)
+    const mediaType = isImage ? MediaType.IMAGE : MediaType.VIDEO
+
+    // Save to database
+    const dataSource = await getConnection()
+    const uploadedMediaRepository = dataSource.getRepository(UploadedMedia)
+
+    const uploadedMedia = uploadedMediaRepository.create({
+      userId: user.id,
+      type: mediaType,
+      filename: file.name,
+      url: publicUrl,
+      r2Key: key,
+      mimeType: file.type,
+      fileSize: file.size,
+      status: 'active',
+    })
+    await uploadedMediaRepository.save(uploadedMedia)
 
     return NextResponse.json({
       data: {

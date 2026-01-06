@@ -10,6 +10,7 @@ import { UserRole } from './enums'
 import type { SocialAccount } from './SocialAccount.entity'
 import type { RefreshToken } from './RefreshToken.entity'
 import type { Post } from './Post.entity'
+import type { UploadedMedia } from './UploadedMedia.entity'
 
 @Entity('users')
 @Unique(['email'])
@@ -101,4 +102,10 @@ export class User extends BaseEntity {
     onDelete: 'CASCADE',
   })
   refreshTokens!: RefreshToken[]
+
+  @OneToMany('UploadedMedia', 'user', {
+    cascade: true,
+    onDelete: 'CASCADE',
+  })
+  uploadedMedia!: UploadedMedia[]
 }

@@ -201,3 +201,81 @@ export function isR2Configured(): boolean {
   const creds = getR2Credentials()
   return !!creds
 }
+
+/**
+ * Delete an object from R2 storage
+ * @param key - Storage key to delete
+ * @returns true if deleted successfully
+ */
+export async function deleteFromR2(key: string): Promise<boolean> {
+  const creds = getR2Credentials()
+  if (!creds) {
+    throw new Error('R2 credentials not configured')
+  }
+
+  const { accountId, accessKeyId, secretAccessKey, bucketName } = creds
+
+  const method = 'DELETE'
+  const region = 'auto'
+  const service = 's3'
+  const host = `${accountId}.r2.cloudflarestorage.com`
+
+  const now = new Date()
+  const amzDate = now.toISOString().replace(/[:\-]|\.\d{3}/g, '')
+  const dateStamp = amzDate.substr(0, 8)
+
+  // Canonical URI
+  const canonicalUri = `/${bucketName}/${key}`
+
+  // Canonical query string (empty for DELETE)
+  const canonicalQuerystring = ''
+
+  // Canonical headers
+  const canonicalHeaders = `host:${host}\n`
+
+  // Signed headers
+  const signedHeaders = 'host'
+
+  // String to sign
+  const stringToSign = getStringToSign(
+    method,
+    canonicalUri,
+    canonicalQuerystring,
+    canonicalHeaders,
+    signedHeaders,
+    amzDate,
+    region,
+    service
+  )
+
+  // Calculate signature
+  const signature = calculateSignature(
+    secretAccessKey,
+    dateStamp,
+    region,
+    service,
+    stringToSign
+  )
+
+  // Build authorization header
+  const credentialScope = `${dateStamp}/${region}/${service}/aws4_request`
+  const authorization = `AWS4-HMAC-SHA256 Credential=${accessKeyId}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`
+
+  // Send DELETE request
+  const url = `https://${host}${canonicalUri}`
+  const response = await fetch(url, {
+    method: 'DELETE',
+    headers: {
+      'Host': host,
+      'X-Amz-Date': amzDate,
+      'Authorization': authorization,
+    },
+  })
+
+  if (!response.ok && response.status !== 404) {
+    // 404 means object already doesn't exist, which is fine
+    throw new Error(`R2 delete failed: ${response.status} ${response.statusText}`)
+  }
+
+  return true
+}
