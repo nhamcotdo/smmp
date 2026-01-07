@@ -11,7 +11,11 @@
     "test": "vitest",
     "test:ui": "vitest --ui",
     "type-check": "tsc --noEmit",
-    "cron:publish": "npx tsx scripts/publish-scheduled-posts.ts"
+    "cron:publish": "npx tsx scripts/publish-scheduled-posts.ts",
+    "db:init": "npx tsx scripts/init-db.ts",
+    "db:migration:generate": "typeorm migration:generate -d src/database/config/data-source.ts",
+    "db:migration:run": "typeorm migration:run -d src/database/config/data-source.ts",
+    "db:migration:revert": "typeorm migration:revert -d src/database/config/data-source.ts"
   },
   "dependencies": {
     "@types/bcrypt": "^6.0.0",
