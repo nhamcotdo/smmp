@@ -141,19 +141,43 @@ function extractAuthor(html: string): { username: string; name: string; bio: str
 }
 
 /**
+ * Extract Douyin URL from shared link format
+ * Shared links include additional text: "8.71 02/29 Okp:/ L@J.IV ... https://v.douyin.com/xxxxx/ 复制此链接..."
+ */
+export function extractDouyinUrl(input: string): string {
+  // Match various Douyin URL patterns
+  const patterns = [
+    /https?:\/\/v\.douyin\.com\/[a-zA-Z0-9]+/g
+  ]
+
+  for (const pattern of patterns) {
+    const match = input.match(pattern)
+    if (match) {
+      return match[0]
+    }
+  }
+
+  // If no match, return original input
+  return input
+}
+
+/**
  * Parse Douyin URL and extract video/image info
  */
 export async function parseDouyinUrl(url: string): Promise<DouyinParseResult> {
   try {
+    // Extract actual Douyin URL from shared link format
+    const extractedUrl = extractDouyinUrl(url)
+
     // Validate Douyin URL
-    if (!url.includes('douyin.com') && !url.includes('iesdouyin.com')) {
+    if (!extractedUrl.includes('douyin.com') && !extractedUrl.includes('iesdouyin.com')) {
       return {
         success: false,
         error: 'Invalid Douyin URL. Please use a valid Douyin share link.',
       }
     }
 
-    const html = await fetchPage(url)
+    const html = await fetchPage(extractedUrl)
 
     // Check for video or image
     const videoPattern = /"video":\{"play_addr":\{"uri":"([a-z0-9]+)"/
