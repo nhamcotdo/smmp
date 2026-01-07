@@ -196,7 +196,7 @@ export async function publishCarouselPost(
     childContainerIds.push(itemContainer.id)
 
     // Small delay between item creations to avoid rate limiting
-    await new Promise((resolve) => setTimeout(resolve, 500))
+    await new Promise((resolve) => setTimeout(resolve, 3000))
   }
 
   // Step 2: Create carousel container with children
@@ -216,7 +216,7 @@ export async function publishCarouselPost(
   const carouselContainer = await createContainer(accessToken, userId, carouselContainerParams)
 
   // Wait for carousel container to be ready
-  await new Promise((resolve) => setTimeout(resolve, 2000))
+  await new Promise((resolve) => setTimeout(resolve, 10000))
 
   // Step 3: Publish the carousel container
   const result = await publishContainer(accessToken, userId, {
