@@ -265,7 +265,7 @@ async function createPost(request: Request, user: User) {
     const post = postRepository.create({
       userId: user.id,
       content: content?.trim() || '',
-      status: PostStatus.DRAFT,
+      status: scheduledFor ? PostStatus.SCHEDULED : PostStatus.DRAFT,
       contentType: finalContentType,
       isScheduled: !!scheduledFor,
       scheduledAt: scheduledFor ? new Date(scheduledFor) : undefined,

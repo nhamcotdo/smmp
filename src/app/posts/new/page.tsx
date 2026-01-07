@@ -27,6 +27,7 @@ export default function CreatePostPage() {
   const [selectedChannel, setSelectedChannel] = useState('')
   const [publishMode, setPublishMode] = useState<PublishMode>('now')
   const [scheduledFor, setScheduledFor] = useState('')
+  const [hasSetDefaultSchedule, setHasSetDefaultSchedule] = useState(false)
   const [isPublishing, setIsPublishing] = useState(false)
   const [error, setError] = useState('')
   const [successMessage, setSuccessMessage] = useState('')
@@ -56,6 +57,24 @@ export default function CreatePostPage() {
         })
     }
   }, [isLoading, isAuthenticated])
+
+  // Set default scheduled time to UTC+7 when switching to schedule mode
+  useEffect(() => {
+    if (publishMode === 'schedule' && !hasSetDefaultSchedule) {
+      // Get current time in UTC+7 (Indochina Time)
+      const now = new Date()
+      // Add 7 hours offset and adjust for browser timezone
+      const utcPlus7 = new Date(now.getTime() + (7 * 60 * 60 * 1000) + (now.getTimezoneOffset() * 60 * 1000))
+      // Format for datetime-local input (YYYY-MM-DDTHH:mm)
+      const formatted = utcPlus7.toISOString().slice(0, 16)
+      setScheduledFor(formatted)
+      setHasSetDefaultSchedule(true)
+    } else if (publishMode === 'now') {
+      // Clear scheduled time and reset flag when switching back to "now" mode
+      setScheduledFor('')
+      setHasSetDefaultSchedule(false)
+    }
+  }, [publishMode, hasSetDefaultSchedule])
 
   // Cleanup blob URL on unmount
   useEffect(() => {
@@ -484,13 +503,16 @@ export default function CreatePostPage() {
                     type="datetime-local"
                     id="scheduledFor"
                     value={scheduledFor}
-                    onChange={(e) => setScheduledFor(e.target.value)}
-                    min={new Date().toISOString().slice(0, 16)}
+                    onChange={(e) => {
+                      setScheduledFor(e.target.value)
+                      setHasSetDefaultSchedule(true)
+                    }}
+                    min={scheduledFor || new Date().toISOString().slice(0, 16)}
                     className="mt-1 block w-full rounded-md border border-zinc-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
                     required
                   />
                   <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-                    Select a future date and time to publish this post automatically
+                    Timezone: UTC+7 (Indochina Time). Select a future date and time to publish this post automatically.
                   </p>
                 </div>
               )}
