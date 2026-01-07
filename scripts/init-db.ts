@@ -15,21 +15,42 @@ config()
 import 'reflect-metadata'
 import { DataSource } from 'typeorm'
 
-// Import entities
-import { User } from '../src/database/entities/User.entity'
-import { SocialAccount } from '../src/database/entities/SocialAccount.entity'
-import { RefreshToken } from '../src/database/entities/RefreshToken.entity'
-import { Post } from '../src/database/entities/Post.entity'
-import { PostPublication } from '../src/database/entities/PostPublication.entity'
-import { Media } from '../src/database/entities/Media.entity'
-import { Analytics } from '../src/database/entities/Analytics.entity'
-import { UploadedMedia } from '../src/database/entities/UploadedMedia.entity'
+/**
+ * Dynamically import entities to avoid circular dependency issues.
+ * This matches the pattern used in connection.ts
+ */
+async function loadEntities() {
+  const [
+    { User },
+    { SocialAccount },
+    { RefreshToken },
+    { Post },
+    { PostPublication },
+    { Media },
+    { Analytics },
+    { UploadedMedia },
+  ] = await Promise.all([
+    import('../src/database/entities/User.entity'),
+    import('../src/database/entities/SocialAccount.entity'),
+    import('../src/database/entities/RefreshToken.entity'),
+    import('../src/database/entities/Post.entity'),
+    import('../src/database/entities/PostPublication.entity'),
+    import('../src/database/entities/Media.entity'),
+    import('../src/database/entities/Analytics.entity'),
+    import('../src/database/entities/UploadedMedia.entity'),
+  ])
+
+  return [User, SocialAccount, RefreshToken, Post, PostPublication, Media, Analytics, UploadedMedia]
+}
 
 async function initDatabase() {
   console.log('🚀 Starting database initialization...')
   console.log('DATABASE_HOST:', process.env.DATABASE_HOST ?? 'localhost')
   console.log('DATABASE_NAME:', process.env.DATABASE_NAME ?? 'smmp_db')
   console.log('NODE_ENV:', process.env.NODE_ENV ?? 'development')
+
+  // Load entities dynamically to avoid circular dependencies
+  const entities = await loadEntities()
 
   const dataSource = new DataSource({
     type: 'postgres',
@@ -43,16 +64,7 @@ async function initDatabase() {
       max: parseInt(process.env.DATABASE_POOL_MAX ?? '10', 10),
       min: parseInt(process.env.DATABASE_POOL_MIN ?? '2', 10),
     },
-    entities: [
-      User,
-      SocialAccount,
-      RefreshToken,
-      Post,
-      PostPublication,
-      Media,
-      Analytics,
-      UploadedMedia,
-    ],
+    entities,
     synchronize: true, // Enable sync for init only
     logging: true,
   } as any)
