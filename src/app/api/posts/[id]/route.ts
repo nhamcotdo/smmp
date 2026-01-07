@@ -5,6 +5,7 @@ import { User } from '@/database/entities/User.entity'
 import { withAuth } from '@/lib/auth/middleware'
 import { PostStatus, ContentType } from '@/database/entities/enums'
 import type { ApiResponse } from '@/lib/types'
+import { utcPlus7ToUtc } from '@/lib/utils/timezone'
 
 interface PostDetail {
   id: string
@@ -175,8 +176,9 @@ async function updatePost(
         updates.isScheduled = false
         updates.status = PostStatus.DRAFT
       } else {
+        // Convert UTC+7 datetime-local input to UTC for storage
         updates.isScheduled = true
-        updates.scheduledAt = new Date(scheduledFor)
+        updates.scheduledAt = utcPlus7ToUtc(scheduledFor)
         updates.status = PostStatus.SCHEDULED
       }
     }

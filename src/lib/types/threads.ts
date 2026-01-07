@@ -60,15 +60,62 @@ export enum ThreadsReplyControl {
   NONE = 'none',
 }
 
+export enum TextEntityType {
+  SPOILER = 'SPOILER',
+  HASHTAG = 'HASHTAG',
+  MENTION = 'MENTION',
+  URL = 'URL',
+  EMAIL = 'EMAIL',
+  PHONE = 'PHONE',
+  BOLD = 'BOLD',
+  ITALIC = 'ITALIC',
+}
+
+export interface TextEntity {
+  entity_type: TextEntityType | string
+  offset: number
+  length: number
+}
+
+export interface TextStyleInfo {
+  offset: number
+  length: number
+  styling_info: string[]
+}
+
+export interface TextAttachment {
+  plaintext?: string
+  link_attachment_url?: string
+  text_with_styling_info?: TextStyleInfo[]
+}
+
+export interface PollAttachment {
+  option_a: string
+  option_b: string
+  option_c?: string
+  option_d?: string
+}
+
+// cspell:ignore GIPHY
+export interface GifAttachment {
+  gif_id: string
+  provider: 'TENOR' | 'GIPHY' | string
+}
+
 export interface CreateTextContainerParams {
   text: string
   media_type: ThreadsMediaType.TEXT
   reply_control?: ThreadsReplyControl
   reply_to_id?: string
   link_attachment?: string
-  poll_attachment?: string
+  poll_attachment?: PollAttachment | string
   topic_tag?: string
   location_id?: string
+  auto_publish_text?: boolean
+  text_entities?: TextEntity[]
+  text_attachment?: TextAttachment
+  gif_attachment?: GifAttachment
+  is_ghost_post?: boolean
 }
 
 export interface CreateImageContainerParams {

@@ -16,6 +16,13 @@ import {
   publishImagePost,
   publishVideoPost,
 } from '@/lib/services/threads-publisher.service'
+import type {
+  PollAttachment,
+  TextEntity,
+  TextAttachment,
+  GifAttachment,
+  ThreadsReplyControl,
+} from '@/lib/types/threads'
 import {
   getOrBuildThreadsPostUrl,
 } from '@/lib/services/threads.service'
@@ -161,11 +168,65 @@ export async function publishScheduledPosts(): Promise<PublishResult[]> {
         }
 
         case ContentType.TEXT:
-        default:
-          platformPostId = await publishTextPost(socialAccount.accessToken, socialAccount.platformUserId, {
+        default: {
+          // Get Threads options from metadata if available
+          const threadsOptions = (post.metadata as { threads?: Record<string, unknown> })?.threads
+          const textPostParams: {
+            text: string
+            linkAttachment?: string
+            topicTag?: string
+            replyControl?: ThreadsReplyControl
+            replyToId?: string
+            pollAttachment?: PollAttachment
+            locationId?: string
+            autoPublishText?: boolean
+            textEntities?: TextEntity[]
+            textAttachment?: TextAttachment
+            gifAttachment?: GifAttachment
+            isGhostPost?: boolean
+          } = {
             text: post.content,
-          })
+          }
+
+          if (threadsOptions) {
+            if (typeof threadsOptions.linkAttachment === 'string') {
+              textPostParams.linkAttachment = threadsOptions.linkAttachment
+            }
+            if (typeof threadsOptions.topicTag === 'string') {
+              textPostParams.topicTag = threadsOptions.topicTag
+            }
+            if (typeof threadsOptions.replyControl === 'string') {
+              textPostParams.replyControl = threadsOptions.replyControl as ThreadsReplyControl
+            }
+            if (typeof threadsOptions.replyToId === 'string') {
+              textPostParams.replyToId = threadsOptions.replyToId
+            }
+            if (threadsOptions.pollAttachment && typeof threadsOptions.pollAttachment === 'object') {
+              textPostParams.pollAttachment = threadsOptions.pollAttachment as PollAttachment
+            }
+            if (typeof threadsOptions.locationId === 'string') {
+              textPostParams.locationId = threadsOptions.locationId
+            }
+            if (typeof threadsOptions.autoPublishText === 'boolean') {
+              textPostParams.autoPublishText = threadsOptions.autoPublishText
+            }
+            if (Array.isArray(threadsOptions.textEntities)) {
+              textPostParams.textEntities = threadsOptions.textEntities as TextEntity[]
+            }
+            if (threadsOptions.textAttachment && typeof threadsOptions.textAttachment === 'object') {
+              textPostParams.textAttachment = threadsOptions.textAttachment as TextAttachment
+            }
+            if (threadsOptions.gifAttachment && typeof threadsOptions.gifAttachment === 'object') {
+              textPostParams.gifAttachment = threadsOptions.gifAttachment as GifAttachment
+            }
+            if (typeof threadsOptions.isGhostPost === 'boolean') {
+              textPostParams.isGhostPost = threadsOptions.isGhostPost
+            }
+          }
+
+          platformPostId = await publishTextPost(socialAccount.accessToken, socialAccount.platformUserId, textPostParams)
           break
+        }
       }
 
       // Fetch post details (including permalink) from Threads API

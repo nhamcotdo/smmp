@@ -16,6 +16,12 @@ import type {
   ThreadsInsights,
   ThreadsAccountInsights,
   ThreadsUser,
+  TextEntity,
+  TextAttachment,
+  PollAttachment,
+  GifAttachment,
+  TextStyleInfo,
+  TextEntityType,
 } from '@/lib/types/threads'
 
 const THREADS_API_HOST = 'https://graph.threads.net'
@@ -125,6 +131,44 @@ export async function getAppAccessToken(): Promise<ThreadsTokenResponse> {
 }
 
 /**
+ * Serialize complex parameters to JSON strings for Threads API
+ */
+function serializeContainerParams(params: CreateContainerParams): Record<string, string> {
+  const serialized: Record<string, string> = {
+    media_type: params.media_type,
+  }
+
+  for (const [key, value] of Object.entries(params)) {
+    if (key === 'media_type') continue
+
+    if (value === undefined || value === null) {
+      continue
+    }
+
+    // Handle complex objects that need JSON serialization
+    if (key === 'poll_attachment') {
+      if (typeof value === 'string') {
+        serialized[key] = value
+      } else {
+        serialized[key] = JSON.stringify(value)
+      }
+    } else if (key === 'text_entities') {
+      serialized[key] = JSON.stringify(value)
+    } else if (key === 'text_attachment') {
+      serialized[key] = JSON.stringify(value)
+    } else if (key === 'gif_attachment') {
+      serialized[key] = JSON.stringify(value)
+    } else if (key === 'auto_publish_text' || key === 'is_ghost_post') {
+      serialized[key] = String(value)
+    } else {
+      serialized[key] = String(value)
+    }
+  }
+
+  return serialized
+}
+
+/**
  * Create a container for a Thread post
  */
 export async function createContainer(
@@ -133,10 +177,8 @@ export async function createContainer(
   params: CreateContainerParams
 ): Promise<ThreadsContainerResponse> {
   const config = getConfig()
-  const queryParams = new URLSearchParams({
-    ...params,
-    media_type: params.media_type,
-  } as Record<string, string>)
+  const serializedParams = serializeContainerParams(params)
+  const queryParams = new URLSearchParams(serializedParams)
 
   const response = await fetch(`${config.apiHost}/${userId}/threads?${queryParams}`, {
     method: 'POST',

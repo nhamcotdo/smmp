@@ -7,9 +7,35 @@ import Link from 'next/link'
 import { getChannels, createAndPublishToThreads } from '@/lib/api/channels'
 import type { Channel } from '@/lib/api/channels'
 import { Platform } from '@/database/entities/enums'
+import { getNowUtcPlus7Input } from '@/lib/utils/timezone'
 
 type PublishMode = 'now' | 'schedule'
 type MediaKind = 'image' | 'video' | null
+
+interface ThreadsOptions {
+  linkAttachment?: string
+  topicTag?: string
+  replyControl?: 'everyone' | 'mentioned' | 'followers' | 'none'
+  replyToId?: string
+  pollAttachment?: {
+    option_a: string
+    option_b: string
+    option_c?: string
+    option_d?: string
+  }
+  locationId?: string
+  autoPublishText?: boolean
+  textEntities?: Array<{
+    entity_type: string
+    offset: number
+    length: number
+  }>
+  gifAttachment?: {
+    gif_id: string
+    provider: string
+  }
+  isGhostPost?: boolean
+}
 
 interface MediaPreview {
   type: MediaKind
@@ -34,9 +60,16 @@ export default function CreatePostPage() {
   const [mediaPreview, setMediaPreview] = useState<MediaPreview | null>(null)
   const [altText, setAltText] = useState('')
   const [mediaUrlInput, setMediaUrlInput] = useState('')
-  const [mediaTypeSelector, setMediaTypeSelector] = useState<'image' | 'video' | null>(null)
   const [isFetchingDouyin, setIsFetchingDouyin] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Threads advanced options
+  const [showAdvancedOptions, setShowAdvancedOptions] = useState(false)
+  const [threadsOptions, setThreadsOptions] = useState<ThreadsOptions>({})
+  const [pollOptionA, setPollOptionA] = useState('')
+  const [pollOptionB, setPollOptionB] = useState('')
+  const [pollOptionC, setPollOptionC] = useState('')
+  const [pollOptionD, setPollOptionD] = useState('')
 
   // Load channels on mount
   useEffect(() => {
@@ -61,13 +94,7 @@ export default function CreatePostPage() {
   // Set default scheduled time to UTC+7 when switching to schedule mode
   useEffect(() => {
     if (publishMode === 'schedule' && !hasSetDefaultSchedule) {
-      // Get current time in UTC+7 (Indochina Time)
-      const now = new Date()
-      // Add 7 hours offset and adjust for browser timezone
-      const utcPlus7 = new Date(now.getTime() + (7 * 60 * 60 * 1000) + (now.getTimezoneOffset() * 60 * 1000))
-      // Format for datetime-local input (YYYY-MM-DDTHH:mm)
-      const formatted = utcPlus7.toISOString().slice(0, 16)
-      setScheduledFor(formatted)
+      setScheduledFor(getNowUtcPlus7Input())
       setHasSetDefaultSchedule(true)
     } else if (publishMode === 'now') {
       // Clear scheduled time and reset flag when switching back to "now" mode
@@ -128,7 +155,6 @@ export default function CreatePostPage() {
   const handleMediaUrlChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const url = e.target.value
     setMediaUrlInput(url)
-    setMediaTypeSelector(null)
 
     if (!url) {
       setMediaPreview(null)
@@ -136,6 +162,7 @@ export default function CreatePostPage() {
     }
 
     // Check if this is a Douyin URL
+    // cspell:ignore iesdouyin
     const isDouyinUrl = /douyin\.com|iesdouyin\.com/i.test(url)
 
     if (isDouyinUrl) {
@@ -203,7 +230,6 @@ export default function CreatePostPage() {
     } else {
       // Unknown type - show selector for user to choose
       setMediaPreview(null)
-      setMediaTypeSelector(null)
     }
 
     // Clear file input when URL is entered
@@ -215,7 +241,6 @@ export default function CreatePostPage() {
   const handleMediaTypeSelect = (type: 'image' | 'video') => {
     if (!mediaUrlInput) return
     setMediaPreview({ type, url: mediaUrlInput })
-    setMediaTypeSelector(type)
   }
 
   const clearMedia = () => {
@@ -226,7 +251,6 @@ export default function CreatePostPage() {
     setMediaPreview(null)
     setAltText('')
     setMediaUrlInput('')
-    setMediaTypeSelector(null)
     if (fileInputRef.current) {
       fileInputRef.current.value = ''
     }
@@ -308,6 +332,26 @@ export default function CreatePostPage() {
           router.push('/channels')
         }, 3000)
       } else {
+        // Build threads options from state
+        const builtThreadsOptions: ThreadsOptions = {}
+        if (threadsOptions.linkAttachment) builtThreadsOptions.linkAttachment = threadsOptions.linkAttachment
+        if (threadsOptions.topicTag) builtThreadsOptions.topicTag = threadsOptions.topicTag
+        if (threadsOptions.replyControl) builtThreadsOptions.replyControl = threadsOptions.replyControl
+        if (threadsOptions.replyToId) builtThreadsOptions.replyToId = threadsOptions.replyToId
+        if (threadsOptions.locationId) builtThreadsOptions.locationId = threadsOptions.locationId
+        if (threadsOptions.autoPublishText !== undefined) builtThreadsOptions.autoPublishText = threadsOptions.autoPublishText
+        if (threadsOptions.textEntities) builtThreadsOptions.textEntities = threadsOptions.textEntities
+        if (threadsOptions.gifAttachment) builtThreadsOptions.gifAttachment = threadsOptions.gifAttachment
+        if (threadsOptions.isGhostPost !== undefined) builtThreadsOptions.isGhostPost = threadsOptions.isGhostPost
+        if (pollOptionA && pollOptionB) {
+          builtThreadsOptions.pollAttachment = {
+            option_a: pollOptionA,
+            option_b: pollOptionB,
+            ...(pollOptionC && { option_c: pollOptionC }),
+            ...(pollOptionD && { option_d: pollOptionD }),
+          }
+        }
+
         // Schedule post
         const response = await fetch('/api/posts', {
           method: 'POST',
@@ -319,6 +363,7 @@ export default function CreatePostPage() {
             imageUrl: mediaPreview?.type === 'image' ? finalMediaUrl : undefined,
             videoUrl: mediaPreview?.type === 'video' ? finalMediaUrl : undefined,
             altText: altText || undefined,
+            ...(Object.keys(builtThreadsOptions).length > 0 && { threadsOptions: builtThreadsOptions }),
           }),
         })
 
@@ -675,6 +720,207 @@ export default function CreatePostPage() {
                         maxLength={500}
                         className="block w-full rounded-md border border-zinc-300 px-3 py-1.5 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
                       />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Advanced Options Section */}
+              <div className="border-t border-zinc-200 pt-6 dark:border-zinc-700">
+                <button
+                  type="button"
+                  onClick={() => setShowAdvancedOptions(!showAdvancedOptions)}
+                  className="mb-4 flex items-center gap-2 text-sm font-medium text-zinc-700 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-zinc-100"
+                >
+                  <svg
+                    className={`h-4 w-4 transition-transform ${showAdvancedOptions ? 'rotate-90' : ''}`}
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                  Advanced Options (Threads API)
+                </button>
+
+                {showAdvancedOptions && (
+                  <div className="space-y-4 rounded-lg bg-zinc-50 p-4 dark:bg-zinc-800">
+                    {/* Link Attachment */}
+                    <div>
+                      <label htmlFor="linkAttachment" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                        Link Attachment URL
+                      </label>
+                      <input
+                        type="url"
+                        id="linkAttachment"
+                        value={threadsOptions.linkAttachment || ''}
+                        onChange={(e) => setThreadsOptions({ ...threadsOptions, linkAttachment: e.target.value })}
+                        placeholder="https://example.com"
+                        className="block w-full rounded-md border border-zinc-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                      />
+                    </div>
+
+                    {/* Topic Tag */}
+                    <div>
+                      <label htmlFor="topicTag" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                        Topic Tag
+                      </label>
+                      <input
+                        type="text"
+                        id="topicTag"
+                        value={threadsOptions.topicTag || ''}
+                        onChange={(e) => setThreadsOptions({ ...threadsOptions, topicTag: e.target.value })}
+                        placeholder="e.g., ThreadsAPI"
+                        className="block w-full rounded-md border border-zinc-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                      />
+                    </div>
+
+                    {/* Reply Control */}
+                    <div>
+                      <label htmlFor="replyControl" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                        Who Can Reply
+                      </label>
+                      <select
+                        id="replyControl"
+                        value={threadsOptions.replyControl || ''}
+                        onChange={(e) => setThreadsOptions({ ...threadsOptions, replyControl: e.target.value as any })}
+                        className="block w-full rounded-md border border-zinc-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                      >
+                        <option value="">Everyone (default)</option>
+                        <option value="everyone">Everyone</option>
+                        <option value="mentioned">Mentioned Only</option>
+                        <option value="followers">Followers Only</option>
+                        <option value="none">No One</option>
+                      </select>
+                    </div>
+
+                    {/* Reply To ID */}
+                    <div>
+                      <label htmlFor="replyToId" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                        Reply To Post ID
+                      </label>
+                      <input
+                        type="text"
+                        id="replyToId"
+                        value={threadsOptions.replyToId || ''}
+                        onChange={(e) => setThreadsOptions({ ...threadsOptions, replyToId: e.target.value })}
+                        placeholder="Threads post ID to reply to"
+                        className="block w-full rounded-md border border-zinc-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                      />
+                    </div>
+
+                    {/* Location ID */}
+                    <div>
+                      <label htmlFor="locationId" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                        Location ID
+                      </label>
+                      <input
+                        type="text"
+                        id="locationId"
+                        value={threadsOptions.locationId || ''}
+                        onChange={(e) => setThreadsOptions({ ...threadsOptions, locationId: e.target.value })}
+                        placeholder="Facebook Location ID"
+                        className="block w-full rounded-md border border-zinc-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                      />
+                    </div>
+
+                    {/* Auto Publish Text */}
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        id="autoPublishText"
+                        checked={threadsOptions.autoPublishText || false}
+                        onChange={(e) => setThreadsOptions({ ...threadsOptions, autoPublishText: e.target.checked })}
+                        className="h-4 w-4 rounded border-zinc-300 text-blue-600 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-900"
+                      />
+                      <label htmlFor="autoPublishText" className="text-sm text-zinc-700 dark:text-zinc-300">
+                        Auto Publish Text
+                      </label>
+                    </div>
+
+                    {/* Ghost Post */}
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        id="isGhostPost"
+                        checked={threadsOptions.isGhostPost || false}
+                        onChange={(e) => setThreadsOptions({ ...threadsOptions, isGhostPost: e.target.checked })}
+                        className="h-4 w-4 rounded border-zinc-300 text-blue-600 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-900"
+                      />
+                      <label htmlFor="isGhostPost" className="text-sm text-zinc-700 dark:text-zinc-300">
+                        Ghost Post (unlisted)
+                      </label>
+                    </div>
+
+                    {/* Poll Attachment */}
+                    <div className="rounded-md border border-zinc-200 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900">
+                      <p className="mb-3 text-sm font-medium text-zinc-700 dark:text-zinc-300">Poll Attachment</p>
+                      <div className="space-y-2">
+                        <input
+                          type="text"
+                          value={pollOptionA}
+                          onChange={(e) => setPollOptionA(e.target.value)}
+                          placeholder="Option A (required)"
+                          className="block w-full rounded-md border border-zinc-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                        />
+                        <input
+                          type="text"
+                          value={pollOptionB}
+                          onChange={(e) => setPollOptionB(e.target.value)}
+                          placeholder="Option B (required)"
+                          className="block w-full rounded-md border border-zinc-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                        />
+                        <input
+                          type="text"
+                          value={pollOptionC}
+                          onChange={(e) => setPollOptionC(e.target.value)}
+                          placeholder="Option C (optional)"
+                          className="block w-full rounded-md border border-zinc-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                        />
+                        <input
+                          type="text"
+                          value={pollOptionD}
+                          onChange={(e) => setPollOptionD(e.target.value)}
+                          placeholder="Option D (optional)"
+                          className="block w-full rounded-md border border-zinc-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                        />
+                      </div>
+                    </div>
+
+                    {/* GIF Attachment */}
+                    <div className="rounded-md border border-zinc-200 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900">
+                      <p className="mb-3 text-sm font-medium text-zinc-700 dark:text-zinc-300">GIF Attachment</p>
+                      <div className="space-y-2">
+                        <input
+                          type="text"
+                          value={threadsOptions.gifAttachment?.gif_id || ''}
+                          onChange={(e) => setThreadsOptions({
+                            ...threadsOptions,
+                            gifAttachment: {
+                              ...threadsOptions.gifAttachment,
+                              gif_id: e.target.value,
+                              provider: threadsOptions.gifAttachment?.provider || 'TENOR'
+                            }
+                          })}
+                          placeholder="GIF ID (e.g., from Tenor)"
+                          className="block w-full rounded-md border border-zinc-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                        />
+                        <select
+                          value={threadsOptions.gifAttachment?.provider || 'TENOR'}
+                          onChange={(e) => setThreadsOptions({
+                            ...threadsOptions,
+                            gifAttachment: {
+                              gif_id: threadsOptions.gifAttachment?.gif_id || '',
+                              provider: e.target.value
+                            }
+                          })}
+                          className="block w-full rounded-md border border-zinc-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                        >
+                          <option value="TENOR">Tenor</option>
+                          {/* cspell:ignore GIPHY */}
+                          <option value="GIPHY">GIPHY</option>
+                        </select>
+                      </div>
                     </div>
                   </div>
                 )}

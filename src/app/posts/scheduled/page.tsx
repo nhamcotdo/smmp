@@ -1,10 +1,11 @@
 'use client'
 
-import { useEffect, useState, FormEvent } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/contexts/AuthContext'
 import Link from 'next/link'
 import { PostStatus } from '@/database/entities/enums'
+import { utcToUtcPlus7Input, utcPlus7ToUtc } from '@/lib/utils/timezone'
 
 interface ScheduledPost {
   id: string
@@ -68,8 +69,9 @@ export default function ScheduledPostsPage() {
       return
     }
 
-    const scheduleDate = new Date(scheduledFor)
-    if (scheduleDate <= new Date()) {
+    // Convert UTC+7 input to UTC for validation
+    const scheduleDateUtc = utcPlus7ToUtc(scheduledFor)
+    if (scheduleDateUtc <= new Date()) {
       setError('Schedule time must be in the future')
       return
     }
@@ -153,7 +155,9 @@ export default function ScheduledPostsPage() {
   function formatScheduleTime(dateStr: string | null) {
     if (!dateStr) return 'Not scheduled'
     const date = new Date(dateStr)
-    return date.toLocaleString()
+    // Convert UTC to UTC+7 for display
+    const utcPlus7 = new Date(date.getTime() + 7 * 60 * 60 * 1000)
+    return utcPlus7.toLocaleString()
   }
 
   function getTimeUntilSchedule(dateStr: string | null) {
@@ -331,7 +335,7 @@ export default function ScheduledPostsPage() {
                         <button
                           onClick={() => {
                             setEditingPost(post.id)
-                            setEditScheduleTime(post.scheduledAt ? new Date(post.scheduledAt).toISOString().slice(0, 16) : '')
+                            setEditScheduleTime(post.scheduledAt ? utcToUtcPlus7Input(post.scheduledAt) : '')
                           }}
                           className="rounded-md border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
                         >

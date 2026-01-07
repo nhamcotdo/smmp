@@ -7,13 +7,13 @@ import { withAuth } from '@/lib/auth/middleware'
 import { PostStatus, ContentType, MediaType } from '@/database/entities/enums'
 import type { ApiResponse } from '@/lib/types'
 import { detectMimeTypeFromUrl, validateMediaUrl, getOwnHostname } from '@/lib/utils/content-parser'
-
-interface PostsQuery {
-  status?: PostStatus
-  scheduled?: boolean
-  limit?: number
-  offset?: number
-}
+import type {
+  PollAttachment,
+  TextEntity,
+  TextAttachment,
+  GifAttachment,
+  ThreadsReplyControl,
+} from '@/lib/types/threads'
 
 interface PostListItem {
   id: string
@@ -53,6 +53,19 @@ interface CreatePostRequest {
   altText?: string
   scheduledFor?: string
   socialAccountId?: string
+  threadsOptions?: {
+    linkAttachment?: string
+    topicTag?: string
+    replyControl?: ThreadsReplyControl
+    replyToId?: string
+    pollAttachment?: PollAttachment
+    locationId?: string
+    autoPublishText?: boolean
+    textEntities?: TextEntity[]
+    textAttachment?: TextAttachment
+    gifAttachment?: GifAttachment
+    isGhostPost?: boolean
+  }
 }
 
 /**
@@ -146,7 +159,7 @@ async function getPosts(request: Request, user: User) {
 async function createPost(request: Request, user: User) {
   try {
     const body = await request.json() as CreatePostRequest
-    const { content, contentType, imageUrl, videoUrl, altText, scheduledFor, socialAccountId } = body
+    const { content, contentType, imageUrl, videoUrl, altText, scheduledFor, socialAccountId, threadsOptions } = body
 
     if (!content?.trim() && !imageUrl && !videoUrl) {
       return NextResponse.json(
@@ -283,6 +296,7 @@ async function createPost(request: Request, user: User) {
       isScheduled: !!scheduledFor,
       scheduledAt: scheduledAtUTC,
       socialAccountId: socialAccountId || null,
+      metadata: threadsOptions ? { threads: threadsOptions } : undefined,
     })
 
     const savedPost = await postRepository.save(post)
