@@ -12,6 +12,9 @@ declare global {
  * This approach allows entities to reference each other without import cycles.
  */
 async function loadEntities() {
+  const base = process.cwd()
+  const entitiesPath = `${base}/src/database/entities`
+
   const [
     { User },
     { SocialAccount },
@@ -22,14 +25,14 @@ async function loadEntities() {
     { Analytics },
     { UploadedMedia },
   ] = await Promise.all([
-    import('../../database/entities/User.entity'),
-    import('../../database/entities/SocialAccount.entity'),
-    import('../../database/entities/RefreshToken.entity'),
-    import('../../database/entities/Post.entity'),
-    import('../../database/entities/PostPublication.entity'),
-    import('../../database/entities/Media.entity'),
-    import('../../database/entities/Analytics.entity'),
-    import('../../database/entities/UploadedMedia.entity'),
+    import(`${entitiesPath}/User.entity`),
+    import(`${entitiesPath}/SocialAccount.entity`),
+    import(`${entitiesPath}/RefreshToken.entity`),
+    import(`${entitiesPath}/Post.entity`),
+    import(`${entitiesPath}/PostPublication.entity`),
+    import(`${entitiesPath}/Media.entity`),
+    import(`${entitiesPath}/Analytics.entity`),
+    import(`${entitiesPath}/UploadedMedia.entity`),
   ])
 
   return [User, SocialAccount, RefreshToken, Post, PostPublication, Media, Analytics, UploadedMedia]
