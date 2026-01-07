@@ -1,49 +1,22 @@
 import 'reflect-metadata'
 import { DataSource, DataSourceOptions } from 'typeorm'
-import path from 'path'
+
+// Import entities directly
+import { User } from '../../database/entities/User.entity'
+import { SocialAccount } from '../../database/entities/SocialAccount.entity'
+import { RefreshToken } from '../../database/entities/RefreshToken.entity'
+import { Post } from '../../database/entities/Post.entity'
+import { PostPublication } from '../../database/entities/PostPublication.entity'
+import { Media } from '../../database/entities/Media.entity'
+import { Analytics } from '../../database/entities/Analytics.entity'
+import { UploadedMedia } from '../../database/entities/UploadedMedia.entity'
 
 declare global {
   // eslint-disable-next-line no-var
   var __typeorm__: DataSource | undefined
 }
 
-/**
- * Dynamically import entities using absolute paths to avoid circular dependencies
- * and ensure consistent resolution across different environments (local, prod, Docker).
- */
-async function loadEntities() {
-  // Get the project root directory - works in all environments
-  const projectRoot = process.env.PWD || process.cwd()
-
-  // Build absolute path to entities directory
-  const entitiesDir = path.join(projectRoot, 'src', 'database', 'entities')
-
-  const [
-    { User },
-    { SocialAccount },
-    { RefreshToken },
-    { Post },
-    { PostPublication },
-    { Media },
-    { Analytics },
-    { UploadedMedia },
-  ] = await Promise.all([
-    import(path.join(entitiesDir, 'User.entity.ts')),
-    import(path.join(entitiesDir, 'SocialAccount.entity.ts')),
-    import(path.join(entitiesDir, 'RefreshToken.entity.ts')),
-    import(path.join(entitiesDir, 'Post.entity.ts')),
-    import(path.join(entitiesDir, 'PostPublication.entity.ts')),
-    import(path.join(entitiesDir, 'Media.entity.ts')),
-    import(path.join(entitiesDir, 'Analytics.entity.ts')),
-    import(path.join(entitiesDir, 'UploadedMedia.entity.ts')),
-  ])
-
-  return [User, SocialAccount, RefreshToken, Post, PostPublication, Media, Analytics, UploadedMedia]
-}
-
 async function createDataSource(): Promise<DataSource> {
-  const entities = await loadEntities()
-
   const options: DataSourceOptions = {
     type: 'postgres',
     host: process.env.DATABASE_HOST ?? 'localhost',
@@ -58,7 +31,16 @@ async function createDataSource(): Promise<DataSource> {
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 2000,
     },
-    entities,
+    entities: [
+      User,
+      SocialAccount,
+      RefreshToken,
+      Post,
+      PostPublication,
+      Media,
+      Analytics,
+      UploadedMedia,
+    ],
     synchronize: process.env.NODE_ENV !== 'production',
     logging: process.env.NODE_ENV === 'development' ? ['error', 'warn'] : false,
   }
