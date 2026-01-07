@@ -32,7 +32,7 @@ interface PublishRequest {
   threadsOptions?: {
     linkAttachment?: string
     topicTag?: string
-    replyControl?: 'everyone' | 'mentioned' | 'followers' | 'none'
+    replyControl?: ThreadsReplyControl
     replyToId?: string
     pollAttachment?: {
       option_a: string

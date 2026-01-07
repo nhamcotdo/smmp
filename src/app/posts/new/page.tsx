@@ -9,6 +9,7 @@ import type { Channel } from '@/lib/api/channels'
 import { Platform } from '@/database/entities/enums'
 import { getNowUtcPlus7Input } from '@/lib/utils/timezone'
 import { fetchDouyinMedia, detectMediaTypeFromUrl, isDouyinUrl } from '@/lib/utils/douyin-handler'
+import { ThreadsReplyControl } from '@/lib/types/threads'
 
 type PublishMode = 'now' | 'schedule'
 type MediaKind = 'image' | 'video' | null
@@ -17,7 +18,7 @@ type PostContentType = 'single' | 'carousel'
 interface ThreadsOptions {
   linkAttachment?: string
   topicTag?: string
-  replyControl?: 'everyone' | 'mentioned' | 'followers' | 'none'
+  replyControl?: ThreadsReplyControl
   replyToId?: string
   pollAttachment?: {
     option_a: string
@@ -1373,14 +1374,15 @@ export default function CreatePostPage() {
                       <select
                         id="replyControl"
                         value={threadsOptions.replyControl || ''}
-                        onChange={(e) => setThreadsOptions({ ...threadsOptions, replyControl: e.target.value as any })}
+                        onChange={(e) => setThreadsOptions({ ...threadsOptions, replyControl: e.target.value as ThreadsReplyControl })}
                         className="block w-full rounded-md border border-zinc-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
                       >
                         <option value="">Everyone (default)</option>
-                        <option value="everyone">Everyone</option>
-                        <option value="mentioned">Mentioned Only</option>
-                        <option value="followers">Followers Only</option>
-                        <option value="none">No One</option>
+                        <option value="EVERYONE">Everyone</option>
+                        <option value="ACCOUNTS_YOU_FOLLOW">Accounts You Follow</option>
+                        <option value="MENTIONED_ONLY">Mentioned Only</option>
+                        <option value="PARENT_POST_AUTHOR_ONLY">Parent Post Author Only</option>
+                        <option value="FOLLOWERS_ONLY">Followers Only</option>
                       </select>
                     </div>
 

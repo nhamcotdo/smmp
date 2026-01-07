@@ -2,6 +2,8 @@
  * API client for channel management
  */
 
+import { ThreadsReplyControl } from '@/lib/types/threads'
+
 export interface Channel {
   id: string
   platform: string
@@ -175,7 +177,7 @@ export async function createAndPublishToThreads(
     threadsOptions?: {
       linkAttachment?: string
       topicTag?: string
-      replyControl?: 'everyone' | 'mentioned' | 'followers' | 'none'
+      replyControl?: ThreadsReplyControl
       replyToId?: string
       pollAttachment?: {
         option_a: string
