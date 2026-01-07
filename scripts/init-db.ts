@@ -8,11 +8,13 @@
  * Run this ONCE on production to create all tables.
  */
 
-// Load environment variables first
+// CRITICAL: reflect-metadata must be imported FIRST, before any TypeORM entities
+import 'reflect-metadata'
+
+// Load environment variables
 import { config } from 'dotenv'
 config()
 
-import 'reflect-metadata'
 import { DataSource } from 'typeorm'
 
 /**
@@ -52,6 +54,7 @@ async function initDatabase() {
   // Load entities dynamically to avoid circular dependencies
   const entities = await loadEntities()
 
+  // Create data source with synchronize enabled for init
   const dataSource = new DataSource({
     type: 'postgres',
     host: process.env.DATABASE_HOST ?? 'localhost',
