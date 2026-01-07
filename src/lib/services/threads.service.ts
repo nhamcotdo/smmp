@@ -297,7 +297,129 @@ export async function getUserProfile(
  * Build a Threads post URL
  */
 export function buildThreadsPostUrl(username: string, postId: string): string {
-  return `https://threads.net/${username}/post/${postId}`
+  return `https://www.threads.com/@${username}/post/${postId}`
+}
+
+/**
+ * Get Threads post details (including permalink) from API
+ * @param accessToken - Threads access token
+ * @param postId - Platform post ID (Threads media ID)
+ * @returns Post details including permalink
+ */
+export async function getThreadsPostDetails(
+  accessToken: string,
+  postId: string
+): Promise<{
+  id: string
+  permalink: string
+  mediaType: string
+  mediaUrl?: string
+  text?: string
+  timestamp?: string
+  shortcode?: string
+  thumbnailUrl?: string
+}> {
+  const fields = [
+    'id',
+    'media_product_type',
+    'media_type',
+    'media_url',
+    'permalink',
+    'text',
+    'timestamp',
+    'shortcode',
+    'thumbnail_url',
+  ].join(',')
+
+  const url = `${THREADS_API_HOST}/${postId}?fields=${encodeURIComponent(fields)}`
+
+  const response = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  })
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch post details: ${response.status} ${response.statusText}`)
+  }
+
+  const data = await response.json()
+
+  return {
+    id: data.id,
+    permalink: data.permalink,
+    mediaType: data.media_type,
+    mediaUrl: data.media_url,
+    text: data.text,
+    timestamp: data.timestamp,
+    shortcode: data.shortcode,
+    thumbnailUrl: data.thumbnail_url,
+  }
+}
+
+/**
+ * Get Threads post insights (analytics) from API
+ * @param accessToken - Threads access token
+ * @param postId - Platform post ID (Threads media ID)
+ * @returns Post analytics metrics
+ */
+export async function getThreadsPostInsights(
+  accessToken: string,
+  postId: string
+): Promise<{
+  views: number
+  likes: number
+  replies: number
+  reposts: number
+  quotes: number
+  shares: number
+}> {
+  const metrics = ['views', 'likes', 'replies', 'reposts', 'quotes', 'shares'].join(',')
+
+  const url = `${THREADS_API_HOST}/${postId}/insights?metric=${encodeURIComponent(metrics)}`
+
+  const response = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  })
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch post insights: ${response.status} ${response.statusText}`)
+  }
+
+  const data = await response.json()
+
+  return {
+    views: data.metrics?.find((m: { name: string }) => m.name === 'views')?.value ?? 0,
+    likes: data.metrics?.find((m: { name: string }) => m.name === 'likes')?.value ?? 0,
+    replies: data.metrics?.find((m: { name: string }) => m.name === 'replies')?.value ?? 0,
+    reposts: data.metrics?.find((m: { name: string }) => m.name === 'reposts')?.value ?? 0,
+    quotes: data.metrics?.find((m: { name: string }) => m.name === 'quotes')?.value ?? 0,
+    shares: data.metrics?.find((m: { name: string }) => m.name === 'shares')?.value ?? 0,
+  }
+}
+
+/**
+ * Get or build Threads post URL with automatic fallback
+ * Tries to fetch the permalink from Threads API, falls back to built URL
+ * @param accessToken - Threads access token
+ * @param postId - Platform post ID (Threads media ID)
+ * @param username - Threads username for fallback URL
+ * @returns The permalink from API or built URL as fallback
+ */
+export async function getOrBuildThreadsPostUrl(
+  accessToken: string,
+  postId: string,
+  username: string
+): Promise<string> {
+  try {
+    const postDetails = await getThreadsPostDetails(accessToken, postId)
+    return postDetails.permalink
+  } catch {
+    // Fallback to built URL if permalink fetch fails
+    return buildThreadsPostUrl(username, postId)
+  }
 }
 
 /**

@@ -7,7 +7,9 @@ import { SocialAccount } from '@/database/entities/SocialAccount.entity'
 import { User } from '@/database/entities/User.entity'
 import { withAuth } from '@/lib/auth/middleware'
 import { PostStatus, Platform } from '@/database/entities/enums'
-import { getThreadInsights, extractAllMetrics } from '@/lib/services/threads.service'
+import {
+  getOrBuildThreadsPostUrl,
+} from '@/lib/services/threads.service'
 import type { ApiResponse } from '@/lib/types'
 
 interface AnalyticsOverview {
@@ -152,7 +154,7 @@ async function getAnalyticsOverview(request: Request, user: User) {
  * GET /api/analytics/posts
  * Get analytics for all user's posts with fresh Threads insights
  */
-async function getPostsAnalytics(request: Request, user: User) {
+async function getPostsAnalytics(request: NextRequest, user: User) {
   try {
     const { searchParams } = new URL(request.url)
     const limit = parseInt(searchParams.get('limit') ?? '20', 10)
@@ -160,7 +162,7 @@ async function getPostsAnalytics(request: Request, user: User) {
 
     const dataSource = await getConnection()
     const postRepository = dataSource.getRepository(Post)
-    const socialAccountRepository = dataSource.getRepository(SocialAccount)
+    const postPublicationRepository = dataSource.getRepository(PostPublication)
 
     // Get only published posts with socialAccount relation
     const posts = await postRepository
@@ -179,55 +181,23 @@ async function getPostsAnalytics(request: Request, user: User) {
     for (const post of posts) {
       const publicationsWithAnalytics = await Promise.all(
         post.publications.map(async (pub) => {
-          // Only fetch fresh insights for Threads publications with platformPostId
-          if (pub.platform === Platform.THREADS && pub.platformPostId && (pub as any).socialAccount) {
-            try {
-              const socialAccount = (pub as any).socialAccount
+          const socialAccount = (pub as any).socialAccount
 
-              const insights = await getThreadInsights(
-                socialAccount.accessToken,
-                pub.platformPostId
-              )
+          // Get or fetch permalink (auto-saves to DB if missing)
+          const platformPostUrl = socialAccount
+            ? await getOrFetchPermalink(pub, socialAccount, postPublicationRepository)
+            : undefined
 
-              const metrics = extractAllMetrics(insights)
-
-              return {
-                platform: pub.platform,
-                platformPostId: pub.platformPostId,
-                platformPostUrl: `https://threads.net/${socialAccount.username}/post/${pub.platformPostId}`,
-                status: pub.status,
-                publishedAt: pub.publishedAt?.toISOString() ?? null,
-                analytics: {
-                  views: metrics.views,
-                  likes: metrics.likes,
-                  shares: metrics.shares,
-                  replies: metrics.replies,
-                  quotes: metrics.quotes,
-                  reposts: metrics.reposts,
-                },
-              }
-            } catch (error) {
-              const errorMessage = error instanceof Error ? error.message : 'Unknown error'
-              console.error(`Failed to fetch insights for post ${post.id}:`, errorMessage)
-
-              return {
-                platform: pub.platform,
-                platformPostId: pub.platformPostId,
-                platformPostUrl: pub.platformPostId ? `https://threads.net/t/${pub.platformPostId}` : undefined,
-                status: pub.status,
-                publishedAt: pub.publishedAt?.toISOString() ?? null,
-                analyticsError: errorMessage,
-              }
-            }
-          }
-
-          // Return publication without analytics for non-Threads or failed fetches
+          // Return publication without analytics - insights are fetched on-demand via separate API
           return {
+            id: pub.id,
             platform: pub.platform,
             platformPostId: pub.platformPostId,
-            platformPostUrl: pub.platformPostId ? `https://threads.net/t/${pub.platformPostId}` : undefined,
+            platformPostUrl,
             status: pub.status,
             publishedAt: pub.publishedAt?.toISOString() ?? null,
+            // Only include analytics if they exist in database (from previous fetches)
+            // Do NOT fetch fresh insights here - use /api/analytics/posts/:id/insights endpoint
           }
         })
       )
@@ -261,6 +231,40 @@ async function getPostsAnalytics(request: Request, user: User) {
 }
 
 type AnalyticsResponse = AnalyticsOverview | PostAnalytics[]
+
+/**
+ * Helper to get or fetch permalink for a publication
+ * Fetches from API if not in database and saves it
+ */
+async function getOrFetchPermalink(
+  pub: PostPublication,
+  socialAccount: any,
+  postPublicationRepository: any
+): Promise<string> {
+  let platformPostUrl = pub.platformPostUrl?.trim()
+  if (!platformPostUrl && socialAccount && pub.platformPostId) {
+    try {
+      platformPostUrl = await getOrBuildThreadsPostUrl(
+        socialAccount.accessToken,
+        pub.platformPostId,
+        socialAccount.username
+      )
+      // Save to database for future use
+      pub.platformPostUrl = platformPostUrl
+      await postPublicationRepository.save(pub)
+    } catch (permalinkError) {
+      console.error(`Failed to fetch permalink for ${pub.id}:`, permalinkError)
+      // Fallback to built URL
+      platformPostUrl = `https://www.threads.com/@${socialAccount.username}/post/${pub.platformPostId}`
+    }
+  }
+
+  if (!platformPostUrl && socialAccount && pub.platformPostId) {
+    platformPostUrl = `https://www.threads.com/@${socialAccount.username}/post/${pub.platformPostId}`
+  }
+
+  return platformPostUrl
+}
 
 export const GET = withAuth<AnalyticsResponse>(async (request: NextRequest, user: User) => {
   const { searchParams } = new URL(request.url)

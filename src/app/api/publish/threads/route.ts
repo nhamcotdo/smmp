@@ -12,7 +12,9 @@ import {
   publishImagePost,
   publishVideoPost,
 } from '@/lib/services/threads-publisher.service'
-import { buildThreadsPostUrl } from '@/lib/services/threads.service'
+import {
+  getOrBuildThreadsPostUrl,
+} from '@/lib/services/threads.service'
 import { Platform, PostStatus, ContentType, MediaType } from '@/database/entities/enums'
 import type { ApiResponse } from '@/lib/types'
 import { validateMediaUrlForPublishing } from '@/lib/utils/content-parser'
@@ -225,6 +227,13 @@ async function publishToThreads(request: Request, user: User) {
         )
       }
 
+      // Fetch post details (including permalink) from Threads API
+      const platformPostUrl = await getOrBuildThreadsPostUrl(
+        socialAccount.accessToken,
+        platformPostId,
+        socialAccount.username
+      )
+
       // Create publication record
       const publication = postPublicationRepository.create({
         postId: post.id,
@@ -232,6 +241,7 @@ async function publishToThreads(request: Request, user: User) {
         platform: Platform.THREADS,
         status: PostStatus.PUBLISHED,
         platformPostId,
+        platformPostUrl,
         publishedAt: new Date(),
       })
       await postPublicationRepository.save(publication)
@@ -260,7 +270,7 @@ async function publishToThreads(request: Request, user: User) {
         data: {
           publicationId,
           platformPostId,
-          platformUrl: buildThreadsPostUrl(socialAccount.username, platformPostId),
+          platformUrl: platformPostUrl,
         },
         status: 200,
         success: true,

@@ -16,7 +16,9 @@ import {
   publishImagePost,
   publishVideoPost,
 } from '@/lib/services/threads-publisher.service'
-import { buildThreadsPostUrl } from '@/lib/services/threads.service'
+import {
+  getOrBuildThreadsPostUrl,
+} from '@/lib/services/threads.service'
 import { LessThan } from 'typeorm'
 import { ContentType } from '@/database/entities/enums'
 import { validateMediaUrl, getOwnHostname } from '@/lib/utils/content-parser'
@@ -157,6 +159,13 @@ export async function publishScheduledPosts(): Promise<PublishResult[]> {
           break
       }
 
+      // Fetch post details (including permalink) from Threads API
+      const platformPostUrl = await getOrBuildThreadsPostUrl(
+        socialAccount.accessToken,
+        platformPostId,
+        socialAccount.username
+      )
+
       // Create publication record
       const publication = postPublicationRepository.create({
         postId: post.id,
@@ -164,6 +173,7 @@ export async function publishScheduledPosts(): Promise<PublishResult[]> {
         platform: Platform.THREADS,
         status: PostStatus.PUBLISHED,
         platformPostId,
+        platformPostUrl,
         publishedAt: new Date(),
       })
       await postPublicationRepository.save(publication)
@@ -178,7 +188,7 @@ export async function publishScheduledPosts(): Promise<PublishResult[]> {
         postId: post.id,
         success: true,
         platformPostId,
-        platformUrl: buildThreadsPostUrl(socialAccount.username, platformPostId),
+        platformUrl: platformPostUrl,
       })
 
       console.log(`✅ Published post ${post.id} to Threads`)

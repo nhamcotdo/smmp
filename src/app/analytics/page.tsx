@@ -1,9 +1,10 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/contexts/AuthContext'
 import Link from 'next/link'
+import type { PostInsights } from '@/lib/types/analytics'
 
 interface AnalyticsOverview {
   totalPosts: number
@@ -28,19 +29,13 @@ interface PostAnalytics {
   status: string
   publishedAt: string | null
   publications: {
+    id: string
     platform: string
     platformPostId: string | null
     platformPostUrl?: string
     status: string
     publishedAt: string | null
-    analytics?: {
-      views: number
-      likes: number
-      shares: number
-      replies: number
-      quotes: number
-      reposts: number
-    }
+    analytics?: PostInsights
     analyticsError?: string
   }[]
 }
@@ -52,6 +47,10 @@ export default function AnalyticsPage() {
   const [posts, setPosts] = useState<PostAnalytics[]>([])
   const [isLoadingData, setIsLoadingData] = useState(true)
   const [error, setError] = useState('')
+  const [loadingInsights, setLoadingInsights] = useState<Set<string>>(new Set())
+  const [insightsCache, setInsightsCache] = useState<Map<string, PostInsights>>(new Map())
+  const inFlightRequests = useRef<Set<string>>(new Set())
+  const [isFetchingAll, setIsFetchingAll] = useState(false)
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -93,6 +92,155 @@ export default function AnalyticsPage() {
       setIsLoadingData(false)
     }
   }
+
+  const fetchInsights = useCallback(async (publicationId: string, postId: string) => {
+    // Double-check: cache AND in-flight to prevent race condition
+    if (insightsCache.has(publicationId) || inFlightRequests.current.has(publicationId)) {
+      return
+    }
+
+    // Mark as in-flight BEFORE the async operation
+    inFlightRequests.current.add(publicationId)
+    setLoadingInsights((prev) => new Set(prev).add(publicationId))
+
+    try {
+      const response = await fetch(`/api/analytics/posts/${publicationId}/insights`)
+      const data = await response.json()
+
+      if (data.success && data.data) {
+        // Update cache
+        setInsightsCache((prev) => new Map(prev).set(publicationId, data.data))
+
+        // Update posts state with new insights
+        setPosts((prevPosts) =>
+          prevPosts.map((post) =>
+            post.postId === postId
+              ? {
+                  ...post,
+                  publications: post.publications.map((pub) =>
+                    pub.id === publicationId
+                      ? { ...pub, analytics: data.data, analyticsError: undefined }
+                      : pub
+                  ),
+                }
+              : post
+          )
+        )
+      } else {
+        throw new Error(data.message || 'Failed to load insights')
+      }
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to load insights'
+      console.error('Failed to fetch insights:', errorMessage)
+
+      // Add error to the publication state for user-facing feedback
+      setPosts((prevPosts) =>
+        prevPosts.map((post) =>
+          post.postId === postId
+            ? {
+                ...post,
+                publications: post.publications.map((pub) =>
+                  pub.id === publicationId
+                    ? { ...pub, analyticsError: errorMessage }
+                    : pub
+                ),
+              }
+            : post
+        )
+      )
+    } finally {
+      inFlightRequests.current.delete(publicationId)
+      setLoadingInsights((prev) => {
+        const next = new Set(prev)
+        next.delete(publicationId)
+        return next
+      })
+    }
+  }, [insightsCache])
+
+  const fetchAllInsights = useCallback(async () => {
+    setIsFetchingAll(true)
+
+    // Collect all Threads publications that need insights
+    const publicationsToFetch: Array<{ publicationId: string }> = []
+    const postIdsToUpdate = new Set<string>()
+
+    // Use functional updates to get latest state
+    setPosts((currentPosts) => {
+      for (const post of currentPosts) {
+        for (const pub of post.publications) {
+          if (
+            pub.platform === 'THREADS' &&
+            pub.platformPostId &&
+            pub.status === 'PUBLISHED' &&
+            !insightsCache.has(pub.id) &&
+            !inFlightRequests.current.has(pub.id)
+          ) {
+            publicationsToFetch.push({ publicationId: pub.id })
+            postIdsToUpdate.add(post.postId)
+          }
+        }
+      }
+      return currentPosts
+    })
+
+    if (publicationsToFetch.length === 0) {
+      setIsFetchingAll(false)
+      return
+    }
+
+    // Fetch all insights in parallel
+    const results = await Promise.allSettled(
+      publicationsToFetch.map(({ publicationId }) =>
+        fetch(`/api/analytics/posts/${publicationId}/insights`).then(async (res) => {
+          const data = await res.json()
+          return { publicationId, data, success: data.success }
+        })
+      )
+    )
+
+    // Update state with results
+    const updates = new Map<string, { analytics?: PostInsights; error?: string }>()
+
+    for (const result of results) {
+      if (result.status === 'fulfilled') {
+        const { publicationId, data, success } = result.value
+        if (success && data.data) {
+          setInsightsCache((prev) => new Map(prev).set(publicationId, data.data))
+          updates.set(publicationId, { analytics: data.data })
+        } else {
+          updates.set(publicationId, { error: data.message || 'Failed to load insights' })
+        }
+      } else {
+        const publicationId = publicationsToFetch[results.indexOf(result)]?.publicationId || ''
+        updates.set(publicationId, { error: 'Failed to load insights' })
+      }
+    }
+
+    // Apply all updates at once for posts that were updated
+    setPosts((prevPosts) =>
+      prevPosts.map((post) =>
+        postIdsToUpdate.has(post.postId)
+          ? {
+              ...post,
+              publications: post.publications.map((pub) => {
+                const update = updates.get(pub.id)
+                if (update) {
+                  return {
+                    ...pub,
+                    analytics: update.analytics,
+                    analyticsError: update.error,
+                  }
+                }
+                return pub
+              }),
+            }
+          : post
+      )
+    )
+
+    setIsFetchingAll(false)
+  }, [insightsCache])
 
   function formatNumber(num: number): string {
     if (num >= 1000000) {
@@ -264,9 +412,20 @@ export default function AnalyticsPage() {
 
         {/* Recent Posts with Analytics */}
         <div className="rounded-lg bg-white p-6 shadow-sm dark:bg-zinc-900">
-          <h2 className="mb-4 text-lg font-semibold text-zinc-900 dark:text-zinc-50">
-            Recent Posts Performance
-          </h2>
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">
+              Recent Posts Performance
+            </h2>
+            {posts.length > 0 && (
+              <button
+                onClick={fetchAllInsights}
+                disabled={isFetchingAll}
+                className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:bg-blue-400 disabled:cursor-not-allowed dark:bg-blue-700 dark:hover:bg-blue-600 dark:disabled:bg-blue-800"
+              >
+                {isFetchingAll ? 'Loading...' : 'Get All Insights'}
+              </button>
+            )}
+          </div>
           {posts.length === 0 ? (
             <p className="text-center text-zinc-600 dark:text-zinc-400">
               No posts published yet. Start creating content to see analytics!
@@ -282,9 +441,9 @@ export default function AnalyticsPage() {
                     {post.content}
                   </p>
                   <div className="space-y-2">
-                    {post.publications.map((pub, idx) => (
+                    {post.publications.map((pub) => (
                       <div
-                        key={idx}
+                        key={pub.id}
                         className="flex items-center justify-between rounded-md bg-zinc-50 px-3 py-2 dark:bg-zinc-800"
                       >
                         <div className="flex items-center gap-2">
@@ -303,22 +462,44 @@ export default function AnalyticsPage() {
                             </a>
                           )}
                         </div>
-                        {pub.analyticsError ? (
-                          <span className="text-xs text-red-600 dark:text-red-400">
-                            Analytics unavailable
-                          </span>
-                        ) : pub.analytics ? (
-                          <div className="flex gap-4 text-sm text-zinc-600 dark:text-zinc-400">
-                            <span>👁️ {formatNumber(pub.analytics.views)}</span>
-                            <span>❤️ {formatNumber(pub.analytics.likes)}</span>
-                            <span>💬 {formatNumber(pub.analytics.shares)}</span>
-                            <span>↩️ {formatNumber(pub.analytics.replies)}</span>
-                            <span>❝ {formatNumber(pub.analytics.quotes)}</span>
-                            <span>🔄 {formatNumber(pub.analytics.reposts)}</span>
+                        {pub.platform === 'THREADS' && pub.platformPostId && pub.status === 'PUBLISHED' ? (
+                          <div className="flex items-center gap-4">
+                            {pub.analytics ? (
+                              <div className="flex gap-4 text-sm text-zinc-600 dark:text-zinc-400">
+                                <span>👁️ {formatNumber(pub.analytics.views)}</span>
+                                <span>❤️ {formatNumber(pub.analytics.likes)}</span>
+                                <span>💬 {formatNumber(pub.analytics.shares)}</span>
+                                <span>↩️ {formatNumber(pub.analytics.replies)}</span>
+                                <span>❝ {formatNumber(pub.analytics.quotes)}</span>
+                                <span>🔄 {formatNumber(pub.analytics.reposts)}</span>
+                              </div>
+                            ) : loadingInsights.has(pub.id) ? (
+                              <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                                Loading...
+                              </span>
+                            ) : (
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => fetchInsights(pub.id, post.postId)}
+                                  className="text-xs text-blue-600 hover:underline dark:text-blue-400"
+                                >
+                                  View insight
+                                </button>
+                                {pub.analyticsError && (
+                                  <span className="text-xs text-red-600 dark:text-red-400">
+                                    {pub.analyticsError}
+                                  </span>
+                                )}
+                              </div>
+                            )}
                           </div>
+                        ) : pub.platform === 'THREADS' && pub.status !== 'PUBLISHED' ? (
+                          <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                            Not published yet
+                          </span>
                         ) : (
                           <span className="text-xs text-zinc-500 dark:text-zinc-400">
-                            No analytics data
+                            No insights available
                           </span>
                         )}
                       </div>
