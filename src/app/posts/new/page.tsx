@@ -12,7 +12,7 @@ import { fetchDouyinMedia, detectMediaTypeFromUrl, isDouyinUrl } from '@/lib/uti
 
 type PublishMode = 'now' | 'schedule'
 type MediaKind = 'image' | 'video' | null
-type PostContentType = 'text' | 'image' | 'video' | 'carousel'
+type PostContentType = 'single' | 'carousel'
 
 interface ThreadsOptions {
   linkAttachment?: string
@@ -79,7 +79,7 @@ export default function CreatePostPage() {
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Carousel state
-  const [contentType, setContentType] = useState<PostContentType>('text')
+  const [contentType, setContentType] = useState<PostContentType>('single')
   const [carouselMediaItems, setCarouselMediaItems] = useState<CarouselMediaItem[]>([])
   const [draggedItem, setDraggedItem] = useState<string | null>(null)
   const [carouselUrlInput, setCarouselUrlInput] = useState('')
@@ -633,7 +633,7 @@ export default function CreatePostPage() {
         setSelectedChannel('')
         clearMedia()
         setCarouselMediaItems([])
-        setContentType('text')
+        setContentType('single')
 
         // Redirect after 3 seconds
         setTimeout(() => {
@@ -685,7 +685,7 @@ export default function CreatePostPage() {
         setPublishMode('now')
         clearMedia()
         setCarouselMediaItems([])
-        setContentType('text')
+        setContentType('single')
 
         // Redirect after 2 seconds
         setTimeout(() => {
@@ -871,15 +871,15 @@ export default function CreatePostPage() {
                 </label>
                 <div className="flex flex-wrap gap-3">
                   <label className={`flex items-center rounded-md border px-4 py-2 cursor-pointer transition-colors ${
-                    contentType === 'text'
+                    contentType === 'single'
                       ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
                       : 'border-zinc-300 hover:border-zinc-400 dark:border-zinc-700 dark:hover:border-zinc-600'
                   }`}>
                     <input
                       type="radio"
                       name="contentType"
-                      value="text"
-                      checked={contentType === 'text'}
+                      value="single"
+                      checked={contentType === 'single'}
                       onChange={(e) => {
                         setContentType(e.target.value as PostContentType)
                         setMediaPreview(null)
@@ -887,43 +887,7 @@ export default function CreatePostPage() {
                       }}
                       className="sr-only"
                     />
-                    <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">📝 Text</span>
-                  </label>
-                  <label className={`flex items-center rounded-md border px-4 py-2 cursor-pointer transition-colors ${
-                    contentType === 'image'
-                      ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
-                      : 'border-zinc-300 hover:border-zinc-400 dark:border-zinc-700 dark:hover:border-zinc-600'
-                  }`}>
-                    <input
-                      type="radio"
-                      name="contentType"
-                      value="image"
-                      checked={contentType === 'image'}
-                      onChange={(e) => {
-                        setContentType(e.target.value as PostContentType)
-                        setCarouselMediaItems([])
-                      }}
-                      className="sr-only"
-                    />
-                    <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">📷 Image</span>
-                  </label>
-                  <label className={`flex items-center rounded-md border px-4 py-2 cursor-pointer transition-colors ${
-                    contentType === 'video'
-                      ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
-                      : 'border-zinc-300 hover:border-zinc-400 dark:border-zinc-700 dark:hover:border-zinc-600'
-                  }`}>
-                    <input
-                      type="radio"
-                      name="contentType"
-                      value="video"
-                      checked={contentType === 'video'}
-                      onChange={(e) => {
-                        setContentType(e.target.value as PostContentType)
-                        setCarouselMediaItems([])
-                      }}
-                      className="sr-only"
-                    />
-                    <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">🎬 Video</span>
+                    <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">📎 Single (Text, Image, or Video)</span>
                   </label>
                   <label className={`flex items-center rounded-md border px-4 py-2 cursor-pointer transition-colors ${
                     contentType === 'carousel'
@@ -964,11 +928,11 @@ export default function CreatePostPage() {
                 </p>
               </div>
 
-              {/* Media Upload Section - Only show for non-carousel types */}
+              {/* Media Upload Section - Only show for single post type */}
               {contentType !== 'carousel' && (
               <div>
                 <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-3">
-                  Attach Media (Optional)
+                  Media (Optional for Single Post)
                 </label>
 
                 {!mediaPreview ? (
