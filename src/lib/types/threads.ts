@@ -136,10 +136,35 @@ export interface CreateVideoContainerParams {
   alt_text?: string
 }
 
+// Carousel item container (image/video in carousel)
+export interface CreateCarouselItemContainerParams {
+  image_url?: string
+  video_url?: string
+  media_type: ThreadsMediaType.IMAGE | ThreadsMediaType.VIDEO
+  is_carousel_item: true
+  alt_text?: string
+}
+
+// Carousel container
+export interface CreateCarouselContainerParams {
+  text?: string
+  media_type: ThreadsMediaType.CAROUSEL
+  children: string // Comma-separated container IDs
+  reply_control?: ThreadsReplyControl
+  reply_to_id?: string
+  link_attachment?: string
+  topic_tag?: string
+  location_id?: string
+  auto_publish_text?: boolean
+  is_ghost_post?: boolean
+}
+
 export type CreateContainerParams =
   | CreateTextContainerParams
   | CreateImageContainerParams
   | CreateVideoContainerParams
+  | CreateCarouselItemContainerParams
+  | CreateCarouselContainerParams
 
 export interface PublishContainerParams {
   container_id: string

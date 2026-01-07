@@ -10,12 +10,14 @@ import { getConnection } from '@/lib/db/connection'
 import { Post } from '@/database/entities/Post.entity'
 import { PostPublication } from '@/database/entities/PostPublication.entity'
 import { SocialAccount } from '@/database/entities/SocialAccount.entity'
-import { PostStatus, Platform, AccountStatus } from '@/database/entities/enums'
+import { PostStatus, Platform, AccountStatus, MediaType } from '@/database/entities/enums'
 import {
   publishTextPost,
   publishImagePost,
   publishVideoPost,
+  publishCarouselPost,
 } from '@/lib/services/threads-publisher.service'
+import { ThreadsReplyControl } from '@/lib/types/threads'
 import type {
   PollAttachment,
   TextEntity,
@@ -167,6 +169,81 @@ export async function publishScheduledPosts(): Promise<PublishResult[]> {
           break
         }
 
+        case ContentType.CAROUSEL: {
+          if (!post.media || post.media.length < 2) {
+            throw new Error('Carousel must have at least 2 media items')
+          }
+
+          // Validate all media URLs
+          for (const item of post.media) {
+            const validation = validateMediaUrl(item.url, {
+              allowOwnHost: true,
+              ownHostname,
+            })
+            if (!validation.valid) {
+              throw new Error(`Invalid media URL: ${validation.error}`)
+            }
+          }
+
+          // Get Threads options from metadata if available
+          const threadsOptions = (post.metadata as { threads?: Record<string, unknown> })?.threads
+          const carouselPostParams: {
+            text?: string
+            mediaItems: Array<{ type: 'image' | 'video'; url: string; altText?: string }>
+            linkAttachment?: string
+            topicTag?: string
+            replyControl?: ThreadsReplyControl
+            replyToId?: string
+            locationId?: string
+            autoPublishText?: boolean
+            isGhostPost?: boolean
+          } = {
+            text: post.content || undefined,
+            mediaItems: post.media.map((item) => ({
+              type: item.type === MediaType.IMAGE ? 'image' : 'video',
+              url: item.url,
+              altText: item.altText || undefined,
+            })),
+          }
+
+          if (threadsOptions) {
+            if (typeof threadsOptions.linkAttachment === 'string') {
+              carouselPostParams.linkAttachment = threadsOptions.linkAttachment
+            }
+            if (typeof threadsOptions.topicTag === 'string') {
+              carouselPostParams.topicTag = threadsOptions.topicTag
+            }
+            if (typeof threadsOptions.replyControl === 'string') {
+              // Validate reply control value before casting
+              const validReplyControls = new Set(['everyone', 'mentioned', 'followers', 'none'])
+              if (validReplyControls.has(threadsOptions.replyControl)) {
+                carouselPostParams.replyControl = threadsOptions.replyControl as ThreadsReplyControl
+              } else {
+                console.warn(`[Post ${post.id}] Invalid replyControl in metadata: "${threadsOptions.replyControl}". Skipping.`)
+              }
+            }
+            if (typeof threadsOptions.replyToId === 'string') {
+              carouselPostParams.replyToId = threadsOptions.replyToId
+            }
+            if (typeof threadsOptions.locationId === 'string') {
+              carouselPostParams.locationId = threadsOptions.locationId
+            }
+            if (typeof threadsOptions.autoPublishText === 'boolean') {
+              carouselPostParams.autoPublishText = threadsOptions.autoPublishText
+            }
+            if (typeof threadsOptions.isGhostPost === 'boolean') {
+              carouselPostParams.isGhostPost = threadsOptions.isGhostPost
+            }
+          }
+
+          platformPostId = await publishCarouselPost(
+            socialAccount.accessToken,
+            socialAccount.platformUserId,
+            carouselPostParams
+          )
+          break
+        }
+
         case ContentType.TEXT:
         default: {
           // Get Threads options from metadata if available
@@ -196,7 +273,13 @@ export async function publishScheduledPosts(): Promise<PublishResult[]> {
               textPostParams.topicTag = threadsOptions.topicTag
             }
             if (typeof threadsOptions.replyControl === 'string') {
-              textPostParams.replyControl = threadsOptions.replyControl as ThreadsReplyControl
+              // Validate reply control value before casting
+              const validReplyControls = new Set(['everyone', 'mentioned', 'followers', 'none'])
+              if (validReplyControls.has(threadsOptions.replyControl)) {
+                textPostParams.replyControl = threadsOptions.replyControl as ThreadsReplyControl
+              } else {
+                console.warn(`[Post ${post.id}] Invalid replyControl in metadata: "${threadsOptions.replyControl}". Skipping.`)
+              }
             }
             if (typeof threadsOptions.replyToId === 'string') {
               textPostParams.replyToId = threadsOptions.replyToId

@@ -86,6 +86,28 @@ function parseImageList(body: string): string[] {
 }
 
 /**
+ * Extract cover image URL from video data
+ */
+function extractCoverImage(body: string): string | null {
+  // First, unescape the unicode escapes
+  const content = body.replace(/\\u002F/g, '/').replace(/\\\//g, '/')
+
+  // Match "cover":{..."url_list":["https://..."]}
+  // Using [\s\S]*? instead of .*? with /s flag to match any character including newlines
+  const coverRegex = /"cover":\s*\{[\s\S]*?"url_list":\s*\[\s*"(https?:\/\/[^"]+)"/
+  const coverMatch = coverRegex.exec(content)
+
+  if (coverMatch) {
+    // Clean up the URL - remove any remaining escaped characters
+    let url = coverMatch[1]
+    url = url.replace(/\\\//g, '/')
+    return url
+  }
+
+  return null
+}
+
+/**
  * Extract statistics from HTML
  */
 function extractStats(html: string): {
@@ -145,9 +167,9 @@ function extractAuthor(html: string): { username: string; name: string; bio: str
  * Shared links include additional text: "8.71 02/29 Okp:/ L@J.IV ... https://v.douyin.com/xxxxx/ 复制此链接..."
  */
 export function extractDouyinUrl(input: string): string {
-  // Match various Douyin URL patterns
+  // Match various Douyin URL patterns (includes hyphens and underscores)
   const patterns = [
-    /https?:\/\/v\.douyin\.com\/[a-zA-Z0-9]+/g
+    /https?:\/\/v\.douyin\.com\/[a-zA-Z0-9_-]+/g
   ]
 
   for (const pattern of patterns) {
@@ -192,6 +214,11 @@ export async function parseDouyinUrl(url: string): Promise<DouyinParseResult> {
       imageUrl.push(...parseImageList(html))
     } else {
       downloadUrl = CV_URL_TEMPLATE.replace('%s', videoMatch[1])
+      // Extract cover image from video data
+      const coverImage = extractCoverImage(html)
+      if (coverImage) {
+        imageUrl.push(coverImage)
+      }
     }
 
     // Extract stats

@@ -171,6 +171,31 @@ export async function createAndPublishToThreads(
     imageUrl?: string
     videoUrl?: string
     altText?: string
+    carouselMediaItems?: Array<{ type: 'image' | 'video'; url: string; altText?: string }>
+    threadsOptions?: {
+      linkAttachment?: string
+      topicTag?: string
+      replyControl?: 'everyone' | 'mentioned' | 'followers' | 'none'
+      replyToId?: string
+      pollAttachment?: {
+        option_a: string
+        option_b: string
+        option_c?: string
+        option_d?: string
+      }
+      locationId?: string
+      autoPublishText?: boolean
+      textEntities?: Array<{
+        entity_type: string
+        offset: number
+        length: number
+      }>
+      gifAttachment?: {
+        gif_id: string
+        provider: string
+      }
+      isGhostPost?: boolean
+    }
   }
 ): Promise<{
   publicationId: string
@@ -189,6 +214,8 @@ export async function createAndPublishToThreads(
       ...(options?.imageUrl && { imageUrl: options.imageUrl }),
       ...(options?.videoUrl && { videoUrl: options.videoUrl }),
       ...(options?.altText && { altText: options.altText }),
+      ...(options?.carouselMediaItems && { carouselMediaItems: options.carouselMediaItems }),
+      ...(options?.threadsOptions && { threadsOptions: options.threadsOptions }),
     }),
   })
 

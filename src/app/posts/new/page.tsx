@@ -8,9 +8,11 @@ import { getChannels, createAndPublishToThreads } from '@/lib/api/channels'
 import type { Channel } from '@/lib/api/channels'
 import { Platform } from '@/database/entities/enums'
 import { getNowUtcPlus7Input } from '@/lib/utils/timezone'
+import { fetchDouyinMedia, detectMediaTypeFromUrl, isDouyinUrl } from '@/lib/utils/douyin-handler'
 
 type PublishMode = 'now' | 'schedule'
 type MediaKind = 'image' | 'video' | null
+type PostContentType = 'text' | 'image' | 'video' | 'carousel'
 
 interface ThreadsOptions {
   linkAttachment?: string
@@ -42,6 +44,19 @@ interface MediaPreview {
   url: string
   file?: File
   blobUrl?: string // Track blob URL for cleanup
+  altText?: string
+  coverImageUrl?: string // Cover image for Douyin videos
+}
+
+interface CarouselMediaItem {
+  id: string
+  type: 'image' | 'video'
+  url: string
+  file?: File
+  blobUrl?: string
+  altText?: string
+  sourceUrl?: string // Original URL for reference
+  isUrlModified?: boolean // Track if user manually edited the URL
 }
 
 export default function CreatePostPage() {
@@ -62,6 +77,17 @@ export default function CreatePostPage() {
   const [mediaUrlInput, setMediaUrlInput] = useState('')
   const [isFetchingDouyin, setIsFetchingDouyin] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Carousel state
+  const [contentType, setContentType] = useState<PostContentType>('text')
+  const [carouselMediaItems, setCarouselMediaItems] = useState<CarouselMediaItem[]>([])
+  const [draggedItem, setDraggedItem] = useState<string | null>(null)
+  const [carouselUrlInput, setCarouselUrlInput] = useState('')
+  const [isFetchingCarouselDouyin, setIsFetchingCarouselDouyin] = useState(false)
+  const [pendingCarouselUrlType, setPendingCarouselUrlType] = useState<'image' | 'video' | null>(null)
+
+  // Track blob URLs for cleanup on unmount
+  const blobUrlsRef = useRef<Set<string>>(new Set())
 
   // Threads advanced options
   const [showAdvancedOptions, setShowAdvancedOptions] = useState(false)
@@ -106,9 +132,13 @@ export default function CreatePostPage() {
   // Cleanup blob URL on unmount
   useEffect(() => {
     return () => {
+      // Cleanup media preview blob URL
       if (mediaPreview?.blobUrl) {
         URL.revokeObjectURL(mediaPreview.blobUrl)
       }
+      // Cleanup all tracked carousel blob URLs
+      blobUrlsRef.current.forEach(url => URL.revokeObjectURL(url))
+      blobUrlsRef.current.clear()
     }
   }, [mediaPreview?.blobUrl])
 
@@ -140,6 +170,7 @@ export default function CreatePostPage() {
 
     // Create preview URL
     const blobUrl = URL.createObjectURL(file)
+    blobUrlsRef.current.add(blobUrl)
 
     setMediaPreview({
       type: isImage ? 'image' : 'video',
@@ -162,41 +193,34 @@ export default function CreatePostPage() {
     }
 
     // Check if this is a Douyin URL
-    // cspell:ignore iesdouyin
-    const isDouyinUrl = /douyin\.com|iesdouyin\.com/i.test(url)
-
-    if (isDouyinUrl) {
-      // Fetch Douyin download URL
+    if (isDouyinUrl(url)) {
       setIsFetchingDouyin(true)
       setError('')
 
       try {
-        const response = await fetch('/api/parse/douyin', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url }),
-        })
+        const media = await fetchDouyinMedia(url, { onError: (msg) => setError(msg) })
 
-        const data = await response.json()
-
-        if (!data.success) {
-          throw new Error(data.message || 'Failed to parse Douyin URL')
+        if (!media) {
+          throw new Error('No media URL found in Douyin response')
         }
 
-        const { type, downloadUrl, imageUrl, videoDesc } = data.data
-
         // Set preview with download URL
-        if (type === 'video' && downloadUrl) {
-          setMediaPreview({ type: 'video', url: downloadUrl })
-        } else if (type === 'image' && imageUrl && imageUrl.length > 0) {
-          setMediaPreview({ type: 'image', url: imageUrl[0] })
+        if (media.type === 'video' && media.downloadUrl) {
+          setMediaPreview({
+            type: 'video',
+            url: media.downloadUrl,
+            // Store cover image if available
+            ...(media.imageUrls.length > 0 && { coverImageUrl: media.imageUrls[0] })
+          })
+        } else if (media.type === 'image' && media.imageUrls.length > 0) {
+          setMediaPreview({ type: 'image', url: media.imageUrls[0] })
         } else {
           throw new Error('No media URL found in Douyin response')
         }
 
         // Optionally pre-fill content with video description
-        if (videoDesc && !content) {
-          setContent(videoDesc)
+        if (media.videoDesc && !content) {
+          setContent(media.videoDesc)
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to parse Douyin URL')
@@ -213,19 +237,11 @@ export default function CreatePostPage() {
     }
 
     // Regular URL handling (non-Douyin)
-    // Detect type from URL extension or query params
-    const isImage = /\.(jpg|jpeg|png|gif|webp|avif|bmp)$/i.test(url) ||
-                    /[?&](format|ext)=jpg($|&)/i.test(url) ||
-                    url.includes('/image/') ||
-                    url.includes('/images/')
-    const isVideo = /\.(mp4|webm|mov|avi|mkv|flv|wmv|m4v|ogv|ts)$/i.test(url) ||
-                    /[?&](format|ext)=mp4($|&)/i.test(url) ||
-                    url.includes('/video/') ||
-                    url.includes('/videos/')
+    const mediaType = detectMediaTypeFromUrl(url)
 
-    if (isImage) {
+    if (mediaType === 'image') {
       setMediaPreview({ type: 'image', url })
-    } else if (isVideo) {
+    } else if (mediaType === 'video') {
       setMediaPreview({ type: 'video', url })
     } else {
       // Unknown type - show selector for user to choose
@@ -247,6 +263,7 @@ export default function CreatePostPage() {
     // Revoke blob URL to prevent memory leak
     if (mediaPreview?.blobUrl) {
       URL.revokeObjectURL(mediaPreview.blobUrl)
+      blobUrlsRef.current.delete(mediaPreview.blobUrl)
     }
     setMediaPreview(null)
     setAltText('')
@@ -256,12 +273,282 @@ export default function CreatePostPage() {
     }
   }
 
+  // Carousel media functions
+  const addCarouselMediaItem = (item: Omit<CarouselMediaItem, 'id'>) => {
+    const newItem: CarouselMediaItem = {
+      ...item,
+      id: Math.random().toString(36).substring(7),
+    }
+    // Track blob URL for cleanup
+    if (newItem.blobUrl) {
+      blobUrlsRef.current.add(newItem.blobUrl)
+    }
+    // Use functional form of setState to avoid batching issues when adding multiple items
+    setCarouselMediaItems(prevItems => [...prevItems, newItem])
+  }
+
+  const removeCarouselMediaItem = (id: string) => {
+    setCarouselMediaItems(prevItems => {
+      const item = prevItems.find(i => i.id === id)
+      if (item?.blobUrl) {
+        URL.revokeObjectURL(item.blobUrl)
+        blobUrlsRef.current.delete(item.blobUrl)
+      }
+      return prevItems.filter(i => i.id !== id)
+    })
+  }
+
+  const updateCarouselItemAltText = (id: string, altText: string) => {
+    setCarouselMediaItems(prevItems =>
+      prevItems.map(item =>
+        item.id === id ? { ...item, altText } : item
+      )
+    )
+  }
+
+  const updateCarouselItemSourceUrl = (id: string, newUrl: string) => {
+    setCarouselMediaItems(prevItems => {
+      const item = prevItems.find(i => i.id === id)
+
+      // Revoke old blob URL if exists and switching to a different URL
+      if (item?.blobUrl && newUrl !== item.url) {
+        URL.revokeObjectURL(item.blobUrl)
+        blobUrlsRef.current.delete(item.blobUrl)
+      }
+
+      return prevItems.map(item =>
+        item.id === id ? {
+          ...item,
+          url: newUrl,
+          // Trim and compare for robustness
+          isUrlModified: newUrl.trim() !== (item.sourceUrl?.trim() ?? ''),
+          // Clear blob reference if switching to non-blob URL
+          ...(newUrl.startsWith('blob:') ? {} : { blobUrl: undefined })
+        } : item
+      )
+    })
+  }
+
+  const handleDragStart = (id: string) => {
+    setDraggedItem(id)
+  }
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+  }
+
+  const handleDrop = (dropTargetId: string) => {
+    if (!draggedItem) return
+
+    const draggedIndex = carouselMediaItems.findIndex(i => i.id === draggedItem)
+    const dropIndex = carouselMediaItems.findIndex(i => i.id === dropTargetId)
+
+    if (draggedIndex === -1 || dropIndex === -1) return
+
+    const items = [...carouselMediaItems]
+    const [removed] = items.splice(draggedIndex, 1)
+    items.splice(dropIndex, 0, removed)
+
+    setCarouselMediaItems(items)
+    setDraggedItem(null)
+  }
+
+  const handleCarouselFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (!files || files.length === 0) return
+
+    for (const file of Array.from(files)) {
+      const fileType = file.type.startsWith('image/') ? 'image' : 'video'
+      const blobUrl = URL.createObjectURL(file)
+
+      addCarouselMediaItem({
+        type: fileType as 'image' | 'video',
+        url: blobUrl,
+        file,
+        blobUrl,
+        altText: '',
+      })
+    }
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
+  }
+
+  const handleCarouselUrlChange = async (url: string) => {
+    setCarouselUrlInput(url)
+    setPendingCarouselUrlType(null)
+
+    if (!url) {
+      return
+    }
+
+    // Check if this is a Douyin URL
+    if (isDouyinUrl(url)) {
+      setIsFetchingCarouselDouyin(true)
+      setError('')
+
+      try {
+        const media = await fetchDouyinMedia(url, { onError: (msg) => setError(msg) })
+
+        if (!media) {
+          throw new Error('No media found in Douyin response')
+        }
+
+        // Validate response has media
+        const hasVideo = media.type === 'video' && media.downloadUrl
+        const hasImages = media.imageUrls.length > 0
+
+        if (!hasVideo && !hasImages) {
+          throw new Error('No media found in Douyin response. The video may be private or deleted.')
+        }
+
+        // For carousel, add both video AND all images if available
+        if (hasVideo) {
+          addCarouselMediaItem({
+            type: 'video',
+            url: media.downloadUrl!,
+            altText: media.videoDesc || '',
+            sourceUrl: url,
+          })
+        }
+
+        // Add all images if available
+        if (hasImages) {
+          for (const imgUrl of media.imageUrls) {
+            addCarouselMediaItem({
+              type: 'image',
+              url: imgUrl,
+              altText: media.videoDesc || '',
+              sourceUrl: url,
+            })
+          }
+        }
+
+        setCarouselUrlInput('')
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to parse Douyin URL')
+      } finally {
+        setIsFetchingCarouselDouyin(false)
+      }
+      return
+    }
+
+    // Regular URL handling (non-Douyin)
+    const mediaType = detectMediaTypeFromUrl(url)
+
+    if (mediaType === 'image') {
+      addCarouselMediaItem({ type: 'image', url, altText: '', sourceUrl: url })
+      setCarouselUrlInput('')
+    } else if (mediaType === 'video') {
+      addCarouselMediaItem({ type: 'video', url, altText: '', sourceUrl: url })
+      setCarouselUrlInput('')
+    } else {
+      // Unknown type - show selector for user to choose
+      setPendingCarouselUrlType('image')
+    }
+  }
+
+  const handleAddCarouselUrlByType = (type: 'image' | 'video') => {
+    if (!carouselUrlInput) return
+    addCarouselMediaItem({ type, url: carouselUrlInput, altText: '', sourceUrl: carouselUrlInput })
+    setCarouselUrlInput('')
+    setPendingCarouselUrlType(null)
+  }
+
+  /**
+   * Upload carousel media items and return final URLs
+   * Extracted to avoid duplication between publish now and schedule flows
+   */
+  async function uploadCarouselMediaItems(
+    items: CarouselMediaItem[]
+  ): Promise<Array<{ type: 'image' | 'video'; url: string; altText?: string }>> {
+    const finalCarouselMedia: Array<{ type: 'image' | 'video'; url: string; altText?: string }> = []
+
+    for (const item of items) {
+      let finalUrl = item.url
+
+      // If a file was selected, upload it to R2 via server proxy
+      if (item.file) {
+        const formData = new FormData()
+        formData.append('file', item.file)
+
+        const uploadResponse = await fetch('/api/upload/proxy', {
+          method: 'POST',
+          body: formData,
+        })
+
+        if (!uploadResponse.ok) {
+          const errorData = await uploadResponse.json()
+          throw new Error(errorData.message || 'File upload failed')
+        }
+
+        const uploadData = await uploadResponse.json()
+
+        if (!uploadData.success) {
+          throw new Error(uploadData.message || 'File upload failed')
+        }
+
+        finalUrl = uploadData.data.url
+      }
+
+      finalCarouselMedia.push({
+        type: item.type,
+        url: finalUrl,
+        altText: item.altText || undefined,
+      })
+    }
+
+    return finalCarouselMedia
+  }
+
+  /**
+   * Build threads options from form state
+   * Extracted to avoid duplication between publish now and schedule flows
+   */
+  function buildThreadsOptionsFromForm(): ThreadsOptions {
+    const built: ThreadsOptions = {}
+
+    // Only include defined fields
+    if (threadsOptions.linkAttachment) built.linkAttachment = threadsOptions.linkAttachment
+    if (threadsOptions.topicTag) built.topicTag = threadsOptions.topicTag
+    if (threadsOptions.replyControl) built.replyControl = threadsOptions.replyControl
+    if (threadsOptions.replyToId) built.replyToId = threadsOptions.replyToId
+    if (threadsOptions.locationId) built.locationId = threadsOptions.locationId
+    if (threadsOptions.autoPublishText !== undefined) built.autoPublishText = threadsOptions.autoPublishText
+    if (threadsOptions.textEntities) built.textEntities = threadsOptions.textEntities
+    if (threadsOptions.gifAttachment) built.gifAttachment = threadsOptions.gifAttachment
+    if (threadsOptions.isGhostPost !== undefined) built.isGhostPost = threadsOptions.isGhostPost
+
+    // Build poll attachment if at least option A and B are provided
+    if (pollOptionA && pollOptionB) {
+      built.pollAttachment = {
+        option_a: pollOptionA,
+        option_b: pollOptionB,
+        ...(pollOptionC && { option_c: pollOptionC }),
+        ...(pollOptionD && { option_d: pollOptionD }),
+      }
+    }
+
+    return built
+  }
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
     setError('')
     setSuccessMessage('')
 
-    if (!content.trim() && !mediaPreview) {
+    if (contentType === 'carousel' && carouselMediaItems.length < 2) {
+      setError('Carousel must have at least 2 media items')
+      return
+    }
+
+    if (contentType === 'carousel' && carouselMediaItems.length > 20) {
+      setError('Carousel cannot have more than 20 media items')
+      return
+    }
+
+    if (!content.trim() && !mediaPreview && carouselMediaItems.length === 0) {
       setError('Please enter content or attach media')
       return
     }
@@ -312,44 +599,54 @@ export default function CreatePostPage() {
       }
 
       if (publishMode === 'now') {
+        // Build threads options from form state
+        const builtThreadsOptions = buildThreadsOptionsFromForm()
+
         // Publish immediately
-        const result = await createAndPublishToThreads(content, selectedChannel, {
-          imageUrl: mediaPreview?.type === 'image' ? finalMediaUrl : undefined,
-          videoUrl: mediaPreview?.type === 'video' ? finalMediaUrl : undefined,
-          altText: altText || undefined,
-        })
-        setSuccessMessage(
-          `Post published successfully! View it at: ${result.platformUrl}`
-        )
+        if (contentType === 'carousel') {
+          // Upload carousel files and prepare media items
+          const finalCarouselMedia = await uploadCarouselMediaItems(carouselMediaItems)
+
+          const result = await createAndPublishToThreads(content, selectedChannel, {
+            carouselMediaItems: finalCarouselMedia,
+            threadsOptions: Object.keys(builtThreadsOptions).length > 0 ? builtThreadsOptions : undefined,
+          })
+
+          setSuccessMessage(
+            `Post published successfully! View it at: ${result.platformUrl}`
+          )
+        } else {
+          // Single media post
+          const result = await createAndPublishToThreads(content, selectedChannel, {
+            imageUrl: mediaPreview?.type === 'image' ? finalMediaUrl : undefined,
+            videoUrl: mediaPreview?.type === 'video' ? finalMediaUrl : undefined,
+            altText: altText || undefined,
+            threadsOptions: Object.keys(builtThreadsOptions).length > 0 ? builtThreadsOptions : undefined,
+          })
+          setSuccessMessage(
+            `Post published successfully! View it at: ${result.platformUrl}`
+          )
+        }
 
         // Clear form
         setContent('')
         setSelectedChannel('')
         clearMedia()
+        setCarouselMediaItems([])
+        setContentType('text')
 
         // Redirect after 3 seconds
         setTimeout(() => {
           router.push('/channels')
         }, 3000)
       } else {
-        // Build threads options from state
-        const builtThreadsOptions: ThreadsOptions = {}
-        if (threadsOptions.linkAttachment) builtThreadsOptions.linkAttachment = threadsOptions.linkAttachment
-        if (threadsOptions.topicTag) builtThreadsOptions.topicTag = threadsOptions.topicTag
-        if (threadsOptions.replyControl) builtThreadsOptions.replyControl = threadsOptions.replyControl
-        if (threadsOptions.replyToId) builtThreadsOptions.replyToId = threadsOptions.replyToId
-        if (threadsOptions.locationId) builtThreadsOptions.locationId = threadsOptions.locationId
-        if (threadsOptions.autoPublishText !== undefined) builtThreadsOptions.autoPublishText = threadsOptions.autoPublishText
-        if (threadsOptions.textEntities) builtThreadsOptions.textEntities = threadsOptions.textEntities
-        if (threadsOptions.gifAttachment) builtThreadsOptions.gifAttachment = threadsOptions.gifAttachment
-        if (threadsOptions.isGhostPost !== undefined) builtThreadsOptions.isGhostPost = threadsOptions.isGhostPost
-        if (pollOptionA && pollOptionB) {
-          builtThreadsOptions.pollAttachment = {
-            option_a: pollOptionA,
-            option_b: pollOptionB,
-            ...(pollOptionC && { option_c: pollOptionC }),
-            ...(pollOptionD && { option_d: pollOptionD }),
-          }
+        // Build threads options from form state
+        const builtThreadsOptions = buildThreadsOptionsFromForm()
+
+        // Upload files and prepare carousel media items
+        let finalCarouselMedia: Array<{ type: 'image' | 'video'; url: string; altText?: string }> | undefined = undefined
+        if (contentType === 'carousel') {
+          finalCarouselMedia = await uploadCarouselMediaItems(carouselMediaItems)
         }
 
         // Schedule post
@@ -360,9 +657,10 @@ export default function CreatePostPage() {
             content,
             scheduledFor,
             socialAccountId: selectedChannel || undefined,
-            imageUrl: mediaPreview?.type === 'image' ? finalMediaUrl : undefined,
-            videoUrl: mediaPreview?.type === 'video' ? finalMediaUrl : undefined,
-            altText: altText || undefined,
+            imageUrl: contentType !== 'carousel' && mediaPreview?.type === 'image' ? finalMediaUrl : undefined,
+            videoUrl: contentType !== 'carousel' && mediaPreview?.type === 'video' ? finalMediaUrl : undefined,
+            altText: contentType !== 'carousel' ? (altText || undefined) : undefined,
+            carouselMediaItems: finalCarouselMedia,
             ...(Object.keys(builtThreadsOptions).length > 0 && { threadsOptions: builtThreadsOptions }),
           }),
         })
@@ -386,6 +684,8 @@ export default function CreatePostPage() {
         setScheduledFor('')
         setPublishMode('now')
         clearMedia()
+        setCarouselMediaItems([])
+        setContentType('text')
 
         // Redirect after 2 seconds
         setTimeout(() => {
@@ -564,9 +864,91 @@ export default function CreatePostPage() {
                 </div>
               )}
 
+              {/* Content Type Selector */}
+              <div>
+                <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-3">
+                  Post Type
+                </label>
+                <div className="flex flex-wrap gap-3">
+                  <label className={`flex items-center rounded-md border px-4 py-2 cursor-pointer transition-colors ${
+                    contentType === 'text'
+                      ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
+                      : 'border-zinc-300 hover:border-zinc-400 dark:border-zinc-700 dark:hover:border-zinc-600'
+                  }`}>
+                    <input
+                      type="radio"
+                      name="contentType"
+                      value="text"
+                      checked={contentType === 'text'}
+                      onChange={(e) => {
+                        setContentType(e.target.value as PostContentType)
+                        setMediaPreview(null)
+                        setCarouselMediaItems([])
+                      }}
+                      className="sr-only"
+                    />
+                    <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">📝 Text</span>
+                  </label>
+                  <label className={`flex items-center rounded-md border px-4 py-2 cursor-pointer transition-colors ${
+                    contentType === 'image'
+                      ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
+                      : 'border-zinc-300 hover:border-zinc-400 dark:border-zinc-700 dark:hover:border-zinc-600'
+                  }`}>
+                    <input
+                      type="radio"
+                      name="contentType"
+                      value="image"
+                      checked={contentType === 'image'}
+                      onChange={(e) => {
+                        setContentType(e.target.value as PostContentType)
+                        setCarouselMediaItems([])
+                      }}
+                      className="sr-only"
+                    />
+                    <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">📷 Image</span>
+                  </label>
+                  <label className={`flex items-center rounded-md border px-4 py-2 cursor-pointer transition-colors ${
+                    contentType === 'video'
+                      ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
+                      : 'border-zinc-300 hover:border-zinc-400 dark:border-zinc-700 dark:hover:border-zinc-600'
+                  }`}>
+                    <input
+                      type="radio"
+                      name="contentType"
+                      value="video"
+                      checked={contentType === 'video'}
+                      onChange={(e) => {
+                        setContentType(e.target.value as PostContentType)
+                        setCarouselMediaItems([])
+                      }}
+                      className="sr-only"
+                    />
+                    <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">🎬 Video</span>
+                  </label>
+                  <label className={`flex items-center rounded-md border px-4 py-2 cursor-pointer transition-colors ${
+                    contentType === 'carousel'
+                      ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
+                      : 'border-zinc-300 hover:border-zinc-400 dark:border-zinc-700 dark:hover:border-zinc-600'
+                  }`}>
+                    <input
+                      type="radio"
+                      name="contentType"
+                      value="carousel"
+                      checked={contentType === 'carousel'}
+                      onChange={(e) => {
+                        setContentType(e.target.value as PostContentType)
+                        setMediaPreview(null)
+                      }}
+                      className="sr-only"
+                    />
+                    <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">🎠 Carousel (2-20 items)</span>
+                  </label>
+                </div>
+              </div>
+
               <div>
                 <label htmlFor="content" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                  Post Content
+                  Post Content {contentType === 'carousel' && '(Optional)'}
                 </label>
                 <textarea
                   id="content"
@@ -582,7 +964,8 @@ export default function CreatePostPage() {
                 </p>
               </div>
 
-              {/* Media Upload Section */}
+              {/* Media Upload Section - Only show for non-carousel types */}
+              {contentType !== 'carousel' && (
               <div>
                 <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-3">
                   Attach Media (Optional)
@@ -706,6 +1089,33 @@ export default function CreatePostPage() {
                       )}
                     </div>
 
+                    {/* Cover Image Toggle for Videos */}
+                    {mediaPreview.type === 'video' && mediaPreview.coverImageUrl && (
+                      <div className="mb-3 rounded-md bg-blue-50 p-3 dark:bg-blue-900/20">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <svg className="h-4 w-4 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                            </svg>
+                            <span className="text-xs font-medium text-blue-800 dark:text-blue-200">
+                              Cover image available
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setMediaPreview({
+                              type: 'image',
+                              url: mediaPreview.coverImageUrl!,
+                              coverImageUrl: mediaPreview.coverImageUrl
+                            })}
+                            className="rounded-md bg-blue-600 px-3 py-1 text-xs font-semibold text-white shadow-sm hover:bg-blue-500 dark:bg-blue-700 dark:hover:bg-blue-600"
+                          >
+                            Use cover instead
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
                     {/* Alt Text Input */}
                     <div>
                       <label htmlFor="altText" className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">
@@ -724,6 +1134,222 @@ export default function CreatePostPage() {
                   </div>
                 )}
               </div>
+              )}
+
+              {/* Carousel Media Section - Only show for carousel type */}
+              {contentType === 'carousel' && (
+              <div>
+                <div className="mb-3 flex items-center justify-between">
+                  <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                    Carousel Media <span className="text-red-500">*</span>
+                  </label>
+                  <span className={`text-sm font-medium ${
+                    carouselMediaItems.length < 2
+                      ? 'text-red-600 dark:text-red-400'
+                      : carouselMediaItems.length > 20
+                      ? 'text-red-600 dark:text-red-400'
+                      : 'text-green-600 dark:text-green-400'
+                  }`}>
+                    {carouselMediaItems.length}/20 items
+                    {carouselMediaItems.length < 2 && ' (minimum 2)'}
+                    {carouselMediaItems.length > 20 && ' (maximum 20)'}
+                  </span>
+                </div>
+
+                {/* Add Media Options */}
+                <div className="mb-4 space-y-4">
+                  {/* File Upload */}
+                  <label className="inline-flex cursor-pointer items-center justify-center rounded-md border-2 border-dashed border-zinc-300 px-4 py-3 text-center transition-colors hover:border-zinc-400 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:border-zinc-600 dark:hover:bg-zinc-800">
+                    <input
+                      type="file"
+                      accept="image/*,video/*"
+                      multiple
+                      onChange={handleCarouselFileSelect}
+                      className="hidden"
+                    />
+                    <svg className="mr-2 h-5 w-5 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                    </svg>
+                    <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                      Upload Files
+                    </span>
+                  </label>
+
+                  <div className="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
+                    <span>or</span>
+                    <div className="h-px flex-1 bg-zinc-300 dark:bg-zinc-700" />
+                  </div>
+
+                  {/* URL Input */}
+                  <div>
+                    <input
+                      type="text"
+                      value={carouselUrlInput}
+                      onChange={(e) => handleCarouselUrlChange(e.target.value)}
+                      placeholder="Paste image or video URL... (Douyin links supported)"
+                      className="block w-full rounded-md border border-zinc-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
+                      disabled={isFetchingCarouselDouyin}
+                    />
+                    <div className="mt-1 flex items-center justify-between">
+                      <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                        Supports: JPG, PNG, GIF, WEBP, MP4, WEBM, MOV, Douyin links
+                      </p>
+                      {isFetchingCarouselDouyin && (
+                        <p className="text-xs text-blue-600 dark:text-blue-400">
+                          Fetching Douyin URL...
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Type Selector - shown when URL entered but type not detected */}
+                    {carouselUrlInput && pendingCarouselUrlType && !isFetchingCarouselDouyin && (
+                      <div className="mt-3 rounded-md bg-amber-50 p-3 dark:bg-amber-900/20">
+                        <p className="mb-2 text-xs font-medium text-amber-800 dark:text-amber-200">
+                          Couldn't detect media type. Please select:
+                        </p>
+                        <div className="flex gap-3">
+                          <button
+                            type="button"
+                            onClick={() => handleAddCarouselUrlByType('image')}
+                            className="flex-1 rounded-md border border-amber-300 bg-white px-3 py-2 text-sm font-medium text-amber-700 hover:bg-amber-50 dark:border-amber-700 dark:bg-zinc-800 dark:text-amber-300 dark:hover:bg-amber-900/20"
+                          >
+                            📷 Image
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleAddCarouselUrlByType('video')}
+                            className="flex-1 rounded-md border border-amber-300 bg-white px-3 py-2 text-sm font-medium text-amber-700 hover:bg-amber-50 dark:border-amber-700 dark:bg-zinc-800 dark:text-amber-300 dark:hover:bg-amber-900/20"
+                          >
+                            🎥 Video
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Carousel Items Grid */}
+                {carouselMediaItems.length > 0 && (
+                  <div className="space-y-3">
+                    {carouselMediaItems.map((item, index) => (
+                      <div
+                        key={item.id}
+                        draggable
+                        onDragStart={() => handleDragStart(item.id)}
+                        onDragOver={handleDragOver}
+                        onDrop={() => handleDrop(item.id)}
+                        className={`group relative flex gap-3 rounded-lg border-2 bg-zinc-50 p-3 transition-all dark:bg-zinc-800 ${
+                          draggedItem === item.id
+                            ? 'border-blue-500 opacity-50'
+                            : 'border-zinc-200 dark:border-zinc-700'
+                        }`}
+                      >
+                        {/* Drag Handle */}
+                        <div className="flex cursor-move items-center">
+                          <svg className="h-5 w-5 text-zinc-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8h16M4 16h16" />
+                          </svg>
+                        </div>
+
+                        {/* Item Number Badge */}
+                        <div className="flex items-center">
+                          <span className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-100 text-sm font-bold text-blue-700 dark:bg-blue-900 dark:text-blue-300">
+                            {index + 1}
+                          </span>
+                        </div>
+
+                        {/* Thumbnail */}
+                        <div className="h-20 w-20 shrink-0 overflow-hidden rounded-md bg-black">
+                          {item.type === 'image' ? (
+                            <img
+                              src={item.url}
+                              alt={`Item ${index + 1}`}
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            <video
+                              src={item.url}
+                              className="h-full w-full object-cover"
+                            />
+                          )}
+                        </div>
+
+                        {/* Type Badge, Alt Text & Source URL */}
+                        <div className="flex-1 space-y-2">
+                          <div className="flex items-center gap-2">
+                            <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
+                              item.type === 'image'
+                                ? 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-300'
+                                : 'bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-300'
+                            }`}>
+                              {item.type === 'image' ? '📷 Image' : '🎬 Video'}
+                            </span>
+                            {item.file && (
+                              <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                                {item.file.name}
+                              </span>
+                            )}
+                          </div>
+                          {/* Source URL - editable */}
+                          {item.sourceUrl && (
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="text"
+                                value={item.url}
+                                onChange={(e) => updateCarouselItemSourceUrl(item.id, e.target.value)}
+                                placeholder="Source URL..."
+                                className="flex-1 rounded-md border border-zinc-300 px-2 py-1 text-xs shadow-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                              />
+                              {item.isUrlModified && (
+                                <span className="text-xs text-amber-600 dark:text-amber-400" title="URL differs from original source">
+                                  ⚠️ Modified
+                                </span>
+                              )}
+                            </div>
+                          )}
+                          <input
+                            type="text"
+                            value={item.altText || ''}
+                            onChange={(e) => updateCarouselItemAltText(item.id, e.target.value)}
+                            placeholder="Alt text (optional)..."
+                            maxLength={500}
+                            className="block w-full rounded-md border border-zinc-300 px-3 py-1.5 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                          />
+                        </div>
+
+                        {/* Remove Button */}
+                        <button
+                          type="button"
+                          onClick={() => removeCarouselMediaItem(item.id)}
+                          className="self-start rounded-md p-1.5 text-zinc-400 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20 dark:hover:text-red-400"
+                          title="Remove item"
+                        >
+                          <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Empty State */}
+                {carouselMediaItems.length === 0 && (
+                  <div className="rounded-lg border-2 border-dashed border-zinc-300 bg-zinc-50 p-8 text-center dark:border-zinc-700 dark:bg-zinc-800">
+                    <svg className="mx-auto h-12 w-12 text-zinc-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                    <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+                      No media items yet. Add at least 2 images or videos to create a carousel.
+                    </p>
+                  </div>
+                )}
+
+                <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
+                  💡 Drag items to reorder them. The first item will be the cover of your carousel.
+                </p>
+              </div>
+              )}
 
               {/* Advanced Options Section */}
               <div className="border-t border-zinc-200 pt-6 dark:border-zinc-700">
@@ -952,7 +1578,12 @@ export default function CreatePostPage() {
               </Link>
               <button
                 type="submit"
-                disabled={isPublishing || !selectedChannel || (publishMode === 'schedule' ? !scheduledFor : false) || (!content.trim() && !mediaPreview)}
+                disabled={
+                  isPublishing ||
+                  !selectedChannel ||
+                  (publishMode === 'schedule' ? !scheduledFor : false) ||
+                  (contentType === 'carousel' ? carouselMediaItems.length < 2 || carouselMediaItems.length > 20 : !content.trim() && !mediaPreview)
+                }
                 className="rounded-md bg-blue-600 px-6 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isPublishing

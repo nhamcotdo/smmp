@@ -11,7 +11,10 @@ import {
   publishTextPost,
   publishImagePost,
   publishVideoPost,
+  publishCarouselPost,
+  type CarouselMediaItem,
 } from '@/lib/services/threads-publisher.service'
+import { ThreadsReplyControl } from '@/lib/types/threads'
 import {
   getOrBuildThreadsPostUrl,
 } from '@/lib/services/threads.service'
@@ -25,6 +28,31 @@ interface PublishRequest {
   imageUrl?: string
   videoUrl?: string
   altText?: string
+  carouselMediaItems?: CarouselMediaItem[]
+  threadsOptions?: {
+    linkAttachment?: string
+    topicTag?: string
+    replyControl?: 'everyone' | 'mentioned' | 'followers' | 'none'
+    replyToId?: string
+    pollAttachment?: {
+      option_a: string
+      option_b: string
+      option_c?: string
+      option_d?: string
+    }
+    locationId?: string
+    autoPublishText?: boolean
+    textEntities?: Array<{
+      entity_type: string
+      offset: number
+      length: number
+    }>
+    gifAttachment?: {
+      gif_id: string
+      provider: string
+    }
+    isGhostPost?: boolean
+  }
 }
 
 interface PublishResponse {
@@ -40,9 +68,9 @@ interface PublishResponse {
 async function publishToThreads(request: Request, user: User) {
   try {
     const body = await request.json() as PublishRequest
-    const { content, channelId, imageUrl, videoUrl, altText } = body
+    const { content, channelId, imageUrl, videoUrl, altText, carouselMediaItems, threadsOptions } = body
 
-    if (!content?.trim() && !imageUrl && !videoUrl) {
+    if (!content?.trim() && !imageUrl && !videoUrl && !carouselMediaItems?.length) {
       return NextResponse.json(
         {
           data: null,
@@ -97,6 +125,39 @@ async function publishToThreads(request: Request, user: User) {
       }
     }
 
+    // Validate carousel media items
+    if (carouselMediaItems && carouselMediaItems.length > 0) {
+      if (carouselMediaItems.length < 2 || carouselMediaItems.length > 20) {
+        return NextResponse.json(
+          {
+            data: null,
+            status: 400,
+            success: false,
+            message: 'Carousel must have between 2 and 20 media items',
+          } as unknown as ApiResponse<PublishResponse>,
+          { status: 400 }
+        )
+      }
+
+      for (let i = 0; i < carouselMediaItems.length; i++) {
+        const item = carouselMediaItems[i]
+        const contentType = item.type === 'image' ? ContentType.IMAGE : ContentType.VIDEO
+        const validation = validateMediaUrlForPublishing(item.url, contentType)
+
+        if (!validation.valid) {
+          return NextResponse.json(
+            {
+              data: null,
+              status: 400,
+              success: false,
+              message: `Invalid ${item.type} URL at position ${i + 1}: ${validation.error}. Use a publicly accessible URL or upload via the form.`,
+            } as unknown as ApiResponse<PublishResponse>,
+            { status: 400 }
+          )
+        }
+      }
+    }
+
     const dataSource = await getConnection()
     const postRepository = dataSource.getRepository(Post)
     const socialAccountRepository = dataSource.getRepository(SocialAccount)
@@ -143,7 +204,9 @@ async function publishToThreads(request: Request, user: User) {
 
     // Determine content type
     let finalContentType = ContentType.TEXT
-    if (imageUrl) {
+    if (carouselMediaItems && carouselMediaItems.length > 0) {
+      finalContentType = ContentType.CAROUSEL
+    } else if (imageUrl) {
       finalContentType = ContentType.IMAGE
     } else if (videoUrl) {
       finalContentType = ContentType.VIDEO
@@ -158,9 +221,25 @@ async function publishToThreads(request: Request, user: User) {
     })
     await postRepository.save(post)
 
-    // Create media record if image or video URL provided
-    if (imageUrl || videoUrl) {
-      const mediaRepository = dataSource.getRepository(Media)
+    // Create media record(s) based on content type
+    const mediaRepository = dataSource.getRepository(Media)
+
+    if (finalContentType === ContentType.CAROUSEL && carouselMediaItems) {
+      // Create media records for each carousel item
+      for (let i = 0; i < carouselMediaItems.length; i++) {
+        const item = carouselMediaItems[i]
+        const media = mediaRepository.create({
+          postId: post.id,
+          type: item.type === 'image' ? MediaType.IMAGE : MediaType.VIDEO,
+          url: item.url,
+          altText: item.altText || undefined,
+          mimeType: item.type === 'image' ? 'image/jpeg' : 'video/mp4',
+          order: i,
+        })
+        await mediaRepository.save(media)
+      }
+    } else if (imageUrl || videoUrl) {
+      // Create single media record for image or video posts
       const media = mediaRepository.create({
         postId: post.id,
         type: finalContentType === ContentType.IMAGE ? MediaType.IMAGE : MediaType.VIDEO,
@@ -175,9 +254,47 @@ async function publishToThreads(request: Request, user: User) {
     let platformPostId: string
     let publicationId: string
 
+    // Valid reply control values - direct validation without fragile enum conversion
+    const validReplyControls = new Set(['everyone', 'mentioned', 'followers', 'none'])
+
+    // Build threads options with safe type conversion
+    const builtThreadsOptions = threadsOptions ? {
+      ...(threadsOptions.linkAttachment && { linkAttachment: threadsOptions.linkAttachment }),
+      ...(threadsOptions.topicTag && { topicTag: threadsOptions.topicTag }),
+      ...(threadsOptions.replyControl && validReplyControls.has(threadsOptions.replyControl) && {
+        replyControl: threadsOptions.replyControl as ThreadsReplyControl
+      }),
+      ...(threadsOptions.replyToId && { replyToId: threadsOptions.replyToId }),
+      ...(threadsOptions.locationId && { locationId: threadsOptions.locationId }),
+      ...(threadsOptions.autoPublishText !== undefined && { autoPublishText: threadsOptions.autoPublishText }),
+      ...(threadsOptions.textEntities && { textEntities: threadsOptions.textEntities }),
+      ...(threadsOptions.gifAttachment && { gifAttachment: threadsOptions.gifAttachment }),
+      ...(threadsOptions.isGhostPost !== undefined && { isGhostPost: threadsOptions.isGhostPost }),
+      ...(threadsOptions.pollAttachment && { pollAttachment: threadsOptions.pollAttachment }),
+    } : {}
+
     try {
       // Publish to Threads based on content type
       switch (finalContentType) {
+        case ContentType.CAROUSEL:
+          if (!carouselMediaItems || carouselMediaItems.length < 2) {
+            throw new Error('At least 2 media items are required for carousel posts')
+          }
+          platformPostId = await publishCarouselPost(
+            socialAccount.accessToken,
+            socialAccount.platformUserId,
+            {
+              text: trimmedContent || undefined,
+              mediaItems: carouselMediaItems.map((item) => ({
+                type: item.type,
+                url: item.url,
+                altText: item.altText,
+              })),
+              ...builtThreadsOptions,
+            }
+          )
+          break
+
         case ContentType.IMAGE:
           if (!imageUrl) {
             throw new Error('Image URL is required for image posts')
@@ -189,6 +306,7 @@ async function publishToThreads(request: Request, user: User) {
               text: trimmedContent || undefined,
               imageUrl,
               altText,
+              ...builtThreadsOptions,
             }
           )
           break
@@ -204,22 +322,30 @@ async function publishToThreads(request: Request, user: User) {
               text: trimmedContent || undefined,
               videoUrl,
               altText,
+              ...builtThreadsOptions,
             }
           )
           break
 
         case ContentType.TEXT:
         default:
-          platformPostId = await publishTextPost(socialAccount.accessToken, socialAccount.platformUserId, {
-            text: trimmedContent,
-          })
+          platformPostId = await publishTextPost(
+            socialAccount.accessToken,
+            socialAccount.platformUserId,
+            {
+              text: trimmedContent,
+              ...builtThreadsOptions,
+            }
+          )
           break
       }
 
       // Validate platformPostId was returned
       if (!platformPostId) {
         throw new Error(
-          finalContentType === ContentType.IMAGE
+          finalContentType === ContentType.CAROUSEL
+            ? 'Failed to create carousel containers. One or more media URLs may be invalid or inaccessible.'
+            : finalContentType === ContentType.IMAGE
             ? 'Failed to create image container. The image URL may be invalid or inaccessible.'
             : finalContentType === ContentType.VIDEO
             ? 'Failed to create video container. The video URL may be invalid, inaccessible, or in an unsupported format.'
@@ -248,21 +374,42 @@ async function publishToThreads(request: Request, user: User) {
       publicationId = publication.id
 
       // Link uploaded media to post for reference
-      const mediaUrl = imageUrl || videoUrl
-      if (mediaUrl) {
-        const uploadedMediaRepository = dataSource.getRepository(UploadedMedia)
-        const uploadedMedia = await uploadedMediaRepository.findOne({
-          where: {
-            userId: user.id,
-            url: mediaUrl,
-            status: 'active',
-          },
-        })
+      const uploadedMediaRepository = dataSource.getRepository(UploadedMedia)
 
-        if (uploadedMedia) {
-          // Link to post (media remains in R2 for reuse)
-          uploadedMedia.postId = post.id
-          await uploadedMediaRepository.save(uploadedMedia)
+      if (finalContentType === ContentType.CAROUSEL && carouselMediaItems) {
+        // Link all carousel media items to post
+        for (const item of carouselMediaItems) {
+          const uploadedMedia = await uploadedMediaRepository.findOne({
+            where: {
+              userId: user.id,
+              url: item.url,
+              status: 'active',
+            },
+          })
+
+          if (uploadedMedia) {
+            // Link to post (media remains in R2 for reuse)
+            uploadedMedia.postId = post.id
+            await uploadedMediaRepository.save(uploadedMedia)
+          }
+        }
+      } else {
+        // Link single media to post
+        const mediaUrl = imageUrl || videoUrl
+        if (mediaUrl) {
+          const uploadedMedia = await uploadedMediaRepository.findOne({
+            where: {
+              userId: user.id,
+              url: mediaUrl,
+              status: 'active',
+            },
+          })
+
+          if (uploadedMedia) {
+            // Link to post (media remains in R2 for reuse)
+            uploadedMedia.postId = post.id
+            await uploadedMediaRepository.save(uploadedMedia)
+          }
         }
       }
 

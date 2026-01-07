@@ -48,6 +48,24 @@ export interface PublishVideoPostParams {
   replyToId?: string
 }
 
+export interface CarouselMediaItem {
+  type: 'image' | 'video'
+  url: string
+  altText?: string
+}
+
+export interface PublishCarouselPostParams {
+  text?: string
+  mediaItems: CarouselMediaItem[]
+  linkAttachment?: string
+  topicTag?: string
+  replyControl?: ThreadsReplyControl
+  replyToId?: string
+  locationId?: string
+  autoPublishText?: boolean
+  isGhostPost?: boolean
+}
+
 /**
  * Publish a text post to Threads
  */
@@ -138,6 +156,71 @@ export async function publishVideoPost(
 
   const result = await publishContainer(accessToken, userId, {
     container_id: container.id,
+  })
+
+  return result.id
+}
+
+/**
+ * Publish a carousel post to Threads
+ * A carousel can have 2-20 images/videos mixed
+ */
+export async function publishCarouselPost(
+  accessToken: string,
+  userId: string,
+  params: PublishCarouselPostParams
+): Promise<string> {
+  const { mediaItems } = params
+
+  if (mediaItems.length < 2) {
+    throw new Error('Carousel must have at least 2 media items')
+  }
+  if (mediaItems.length > 20) {
+    throw new Error('Carousel cannot have more than 20 media items')
+  }
+
+  // Step 1: Create item containers for each media
+  const childContainerIds: string[] = []
+  for (const item of mediaItems) {
+    const itemParams: CreateContainerParams = {
+      media_type: item.type === 'image' ? ThreadsMediaType.IMAGE : ThreadsMediaType.VIDEO,
+      is_carousel_item: true,
+      ...(item.type === 'image'
+        ? { image_url: item.url }
+        : { video_url: item.url }
+      ),
+      ...(item.altText && { alt_text: item.altText }),
+    }
+
+    const itemContainer = await createContainer(accessToken, userId, itemParams)
+    childContainerIds.push(itemContainer.id)
+
+    // Small delay between item creations to avoid rate limiting
+    await new Promise((resolve) => setTimeout(resolve, 500))
+  }
+
+  // Step 2: Create carousel container with children
+  const carouselContainerParams: CreateContainerParams = {
+    text: params.text || '',
+    media_type: ThreadsMediaType.CAROUSEL,
+    children: childContainerIds.join(','),
+    ...(params.linkAttachment && { link_attachment: params.linkAttachment }),
+    ...(params.topicTag && { topic_tag: params.topicTag }),
+    ...(params.replyControl && { reply_control: params.replyControl }),
+    ...(params.replyToId && { reply_to_id: params.replyToId }),
+    ...(params.locationId && { location_id: params.locationId }),
+    ...(params.autoPublishText !== undefined && { auto_publish_text: params.autoPublishText }),
+    ...(params.isGhostPost !== undefined && { is_ghost_post: params.isGhostPost }),
+  }
+
+  const carouselContainer = await createContainer(accessToken, userId, carouselContainerParams)
+
+  // Wait for carousel container to be ready
+  await new Promise((resolve) => setTimeout(resolve, 2000))
+
+  // Step 3: Publish the carousel container
+  const result = await publishContainer(accessToken, userId, {
+    container_id: carouselContainer.id,
   })
 
   return result.id

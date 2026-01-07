@@ -53,6 +53,11 @@ interface CreatePostRequest {
   altText?: string
   scheduledFor?: string
   socialAccountId?: string
+  carouselMediaItems?: Array<{
+    type: 'image' | 'video'
+    url: string
+    altText?: string
+  }>
   threadsOptions?: {
     linkAttachment?: string
     topicTag?: string
@@ -159,9 +164,9 @@ async function getPosts(request: Request, user: User) {
 async function createPost(request: Request, user: User) {
   try {
     const body = await request.json() as CreatePostRequest
-    const { content, contentType, imageUrl, videoUrl, altText, scheduledFor, socialAccountId, threadsOptions } = body
+    const { content, contentType, imageUrl, videoUrl, altText, scheduledFor, socialAccountId, carouselMediaItems, threadsOptions } = body
 
-    if (!content?.trim() && !imageUrl && !videoUrl) {
+    if (!content?.trim() && !imageUrl && !videoUrl && !carouselMediaItems) {
       return NextResponse.json(
         {
           data: null,
@@ -175,7 +180,9 @@ async function createPost(request: Request, user: User) {
 
     // Determine content type
     let finalContentType = contentType || ContentType.TEXT
-    if (imageUrl) {
+    if (carouselMediaItems && carouselMediaItems.length > 0) {
+      finalContentType = ContentType.CAROUSEL
+    } else if (imageUrl) {
       finalContentType = ContentType.IMAGE
     } else if (videoUrl) {
       finalContentType = ContentType.VIDEO
@@ -201,6 +208,30 @@ async function createPost(request: Request, user: User) {
           status: 400,
           success: false,
           message: 'Video URL is required for VIDEO content type',
+        } as unknown as ApiResponse<PostListItem>,
+        { status: 400 }
+      )
+    }
+
+    if (finalContentType === ContentType.CAROUSEL && (!carouselMediaItems || carouselMediaItems.length < 2)) {
+      return NextResponse.json(
+        {
+          data: null,
+          status: 400,
+          success: false,
+          message: 'Carousel must have at least 2 media items',
+        } as unknown as ApiResponse<PostListItem>,
+        { status: 400 }
+      )
+    }
+
+    if (finalContentType === ContentType.CAROUSEL && carouselMediaItems && carouselMediaItems.length > 20) {
+      return NextResponse.json(
+        {
+          data: null,
+          status: 400,
+          success: false,
+          message: 'Carousel cannot have more than 20 media items',
         } as unknown as ApiResponse<PostListItem>,
         { status: 400 }
       )
@@ -243,6 +274,27 @@ async function createPost(request: Request, user: User) {
           } as unknown as ApiResponse<PostListItem>,
           { status: 400 }
         )
+      }
+    }
+
+    // Validate carousel media URLs
+    if (carouselMediaItems) {
+      for (const item of carouselMediaItems) {
+        const validation = validateMediaUrl(item.url, {
+          allowOwnHost: true,
+          ownHostname,
+        })
+        if (!validation.valid) {
+          return NextResponse.json(
+            {
+              data: null,
+              status: 400,
+              success: false,
+              message: `Invalid ${item.type} URL in carousel: ${validation.error}. Use a publicly accessible URL or upload via the form.`,
+            } as unknown as ApiResponse<PostListItem>,
+            { status: 400 }
+          )
+        }
       }
     }
 
@@ -301,9 +353,35 @@ async function createPost(request: Request, user: User) {
 
     const savedPost = await postRepository.save(post)
 
-    // Create media record if image or video URL provided
+    // Create media record(s) if image/video URL(s) provided
     let mediaItems: PostListItem['media'] = []
-    if (imageUrl || videoUrl) {
+
+    if (finalContentType === ContentType.CAROUSEL && carouselMediaItems) {
+      // Save all carousel media items
+      for (let i = 0; i < carouselMediaItems.length; i++) {
+        const item = carouselMediaItems[i]
+        const detectedMimeType = detectMimeTypeFromUrl(item.url)
+
+        const media = mediaRepository.create({
+          postId: savedPost.id,
+          type: item.type === 'image' ? MediaType.IMAGE : MediaType.VIDEO,
+          url: item.url,
+          altText: item.altText || undefined,
+          mimeType: detectedMimeType || (item.type === 'image' ? 'image/jpeg' : 'video/mp4'),
+          order: i,
+        })
+        await mediaRepository.save(media)
+
+        mediaItems.push({
+          id: media.id,
+          type: media.type,
+          url: media.url,
+          thumbnailUrl: media.thumbnailUrl ?? undefined,
+          altText: media.altText ?? undefined,
+        })
+      }
+    } else if (imageUrl || videoUrl) {
+      // Save single media item
       const mediaUrl = imageUrl || videoUrl || ''
       const detectedMimeType = detectMimeTypeFromUrl(mediaUrl)
 
