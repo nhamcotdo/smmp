@@ -8,12 +8,14 @@ import {
 } from 'typeorm'
 import { BaseEntity } from './base.entity'
 import type { User } from './User.entity'
+import type { SocialAccount } from './SocialAccount.entity'
 import type { PostPublication } from './PostPublication.entity'
 import type { Media } from './Media.entity'
 import { PostStatus, ContentType } from './enums'
 
 @Entity('posts')
 @Index('idx_posts_user_id', ['userId'])
+@Index('idx_posts_social_account_id', ['socialAccountId'])
 @Index('idx_posts_status', ['status'])
 @Index('idx_posts_scheduled_at', ['scheduledAt'])
 @Index('idx_posts_published_at', ['publishedAt'])
@@ -33,6 +35,20 @@ export class Post extends BaseEntity {
   })
   @JoinColumn({ name: 'user_id' })
   user!: User
+
+  @Column({
+    type: 'uuid',
+    nullable: true,
+    name: 'social_account_id',
+  })
+  socialAccountId!: string | null
+
+  @ManyToOne('SocialAccount', 'posts', {
+    onDelete: 'SET NULL',
+    nullable: true,
+  })
+  @JoinColumn({ name: 'social_account_id' })
+  socialAccount!: SocialAccount | null
 
   @Column({
     type: 'text',

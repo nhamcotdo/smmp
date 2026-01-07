@@ -315,6 +315,7 @@ export default function CreatePostPage() {
           body: JSON.stringify({
             content,
             scheduledFor,
+            socialAccountId: selectedChannel || undefined,
             imageUrl: mediaPreview?.type === 'image' ? finalMediaUrl : undefined,
             videoUrl: mediaPreview?.type === 'video' ? finalMediaUrl : undefined,
             altText: altText || undefined,
@@ -473,15 +474,16 @@ export default function CreatePostPage() {
               {publishMode === 'schedule' && (
                 <div className="mb-4">
                   <label htmlFor="channel" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                    Publishing Channel
+                    Select Threads Channel *
                   </label>
                   <select
                     id="channel"
                     value={selectedChannel}
                     onChange={(e) => setSelectedChannel(e.target.value)}
                     className="mt-1 block w-full rounded-md border border-zinc-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
+                    required
                   >
-                    <option value="">Select channel (optional)</option>
+                    <option value="">Choose a channel...</option>
                     {threadsChannels.map((channel) => (
                       <option key={channel.id} value={channel.id}>
                         @{channel.username} {channel.status !== 'active' && `(${channel.status})`}
@@ -489,7 +491,7 @@ export default function CreatePostPage() {
                     ))}
                   </select>
                   <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-                    When scheduled, the post will be published to your first active Threads account if not specified
+                    The post will be published to this account at the scheduled time
                   </p>
                 </div>
               )}
@@ -704,7 +706,7 @@ export default function CreatePostPage() {
               </Link>
               <button
                 type="submit"
-                disabled={isPublishing || (publishMode === 'now' ? !selectedChannel : !scheduledFor) || (!content.trim() && !mediaPreview)}
+                disabled={isPublishing || !selectedChannel || (publishMode === 'schedule' ? !scheduledFor : false) || (!content.trim() && !mediaPreview)}
                 className="rounded-md bg-blue-600 px-6 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isPublishing

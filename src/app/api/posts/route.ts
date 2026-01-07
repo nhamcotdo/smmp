@@ -51,6 +51,7 @@ interface CreatePostRequest {
   videoUrl?: string
   altText?: string
   scheduledFor?: string
+  socialAccountId?: string
 }
 
 /**
@@ -143,7 +144,7 @@ async function getPosts(request: Request, user: User) {
 async function createPost(request: Request, user: User) {
   try {
     const body = await request.json() as CreatePostRequest
-    const { content, contentType, imageUrl, videoUrl, altText, scheduledFor } = body
+    const { content, contentType, imageUrl, videoUrl, altText, scheduledFor, socialAccountId } = body
 
     if (!content?.trim() && !imageUrl && !videoUrl) {
       return NextResponse.json(
@@ -269,6 +270,7 @@ async function createPost(request: Request, user: User) {
       contentType: finalContentType,
       isScheduled: !!scheduledFor,
       scheduledAt: scheduledFor ? new Date(scheduledFor) : undefined,
+      socialAccountId: socialAccountId || null,
     })
 
     const savedPost = await postRepository.save(post)

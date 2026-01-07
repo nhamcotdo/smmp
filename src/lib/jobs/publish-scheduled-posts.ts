@@ -50,7 +50,7 @@ export async function publishScheduledPosts(): Promise<PublishResult[]> {
       isScheduled: true,
       scheduledAt: LessThan(now),
     },
-    relations: ['publications', 'media'],
+    relations: ['publications', 'media', 'socialAccount'],
     order: {
       scheduledAt: 'ASC',
     },
@@ -72,22 +72,31 @@ export async function publishScheduledPosts(): Promise<PublishResult[]> {
         status: PostStatus.PUBLISHING,
       })
 
-      // Get user's social accounts for publishing
-      const socialAccounts = await socialAccountRepository.find({
-        where: {
-          userId: post.userId,
-          platform: Platform.THREADS,
-          status: AccountStatus.ACTIVE,
-        },
-      })
+      // Use the stored social account if available, otherwise get first active Threads account
+      let socialAccount: SocialAccount | null = post.socialAccount || null
 
-      if (socialAccounts.length === 0) {
-        throw new Error('No active Threads account found')
+      // Verify the stored account is still active and belongs to the user
+      if (socialAccount && socialAccount.status !== AccountStatus.ACTIVE) {
+        console.warn(`Stored social account ${socialAccount.id} is not active, falling back to first active account`)
+        socialAccount = null
       }
 
-      // Publish to the first active account
-      // TODO: Support publishing to multiple accounts
-      const socialAccount = socialAccounts[0]
+      // Fallback: get user's first active Threads account
+      if (!socialAccount) {
+        const socialAccounts = await socialAccountRepository.find({
+          where: {
+            userId: post.userId,
+            platform: Platform.THREADS,
+            status: AccountStatus.ACTIVE,
+          },
+        })
+
+        if (socialAccounts.length === 0) {
+          throw new Error('No active Threads account found')
+        }
+
+        socialAccount = socialAccounts[0]
+      }
 
       // Get first media item if exists
       const mediaItem = post.media?.[0]
