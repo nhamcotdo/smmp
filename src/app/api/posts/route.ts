@@ -264,6 +264,16 @@ async function createPost(request: Request, user: User) {
     const postRepository = dataSource.getRepository(Post)
     const mediaRepository = dataSource.getRepository(Media)
 
+    // Convert UTC+7 to UTC for storage
+    // datetime-local input returns time without timezone, user enters in UTC+7
+    // We need to subtract 7 hours to get UTC time
+    let scheduledAtUTC: Date | undefined = undefined
+    if (scheduledFor) {
+      const scheduledDateUTC7 = new Date(scheduledFor)
+      // Subtract 7 hours to convert from UTC+7 to UTC
+      scheduledAtUTC = new Date(scheduledDateUTC7.getTime() - 7 * 60 * 60 * 1000)
+    }
+
     // Create post
     const post = postRepository.create({
       userId: user.id,
@@ -271,7 +281,7 @@ async function createPost(request: Request, user: User) {
       status: scheduledFor ? PostStatus.SCHEDULED : PostStatus.DRAFT,
       contentType: finalContentType,
       isScheduled: !!scheduledFor,
-      scheduledAt: scheduledFor ? new Date(scheduledFor) : undefined,
+      scheduledAt: scheduledAtUTC,
       socialAccountId: socialAccountId || null,
     })
 
