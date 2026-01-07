@@ -74,6 +74,33 @@ async function waitForContainerReady(
   )
 }
 
+/**
+ * Generic publish workflow that handles all container-based posts
+ * Creates container, waits for ready, then publishes
+ */
+async function publishWithContainer<T extends CreateContainerParams>(
+  accessToken: string,
+  userId: string,
+  containerParams: T,
+  options: {
+    maxWaitMs: number
+    containerType?: string
+  }
+): Promise<string> {
+  const { maxWaitMs, containerType = 'Container' } = options
+
+  const container = await createContainer(accessToken, userId, containerParams)
+  console.log(`[${containerType}] Created container: ${container.id}`)
+
+  await waitForContainerReady(accessToken, container.id, { maxWaitMs })
+
+  const result = await publishContainer(accessToken, userId, {
+    container_id: container.id,
+  })
+
+  return result.id
+}
+
 export interface PublishTextPostParams {
   text: string
   linkAttachment?: string
@@ -147,18 +174,10 @@ export async function publishTextPost(
     ...(params.isGhostPost !== undefined && { is_ghost_post: params.isGhostPost }),
   }
 
-  const container = await createContainer(accessToken, userId, containerParams)
-
-  // Wait for container to be ready using status polling
-  await waitForContainerReady(accessToken, container.id, {
+  return publishWithContainer(accessToken, userId, containerParams, {
     maxWaitMs: 30000,
+    containerType: 'Text',
   })
-
-  const result = await publishContainer(accessToken, userId, {
-    container_id: container.id,
-  })
-
-  return result.id
 }
 
 /**
@@ -178,18 +197,10 @@ export async function publishImagePost(
     ...(params.replyToId && { reply_to_id: params.replyToId }),
   }
 
-  const container = await createContainer(accessToken, userId, containerParams)
-
-  // Wait for container to be ready using status polling
-  await waitForContainerReady(accessToken, container.id, {
+  return publishWithContainer(accessToken, userId, containerParams, {
     maxWaitMs: 30000,
+    containerType: 'Image',
   })
-
-  const result = await publishContainer(accessToken, userId, {
-    container_id: container.id,
-  })
-
-  return result.id
 }
 
 /**
@@ -209,19 +220,10 @@ export async function publishVideoPost(
     ...(params.replyToId && { reply_to_id: params.replyToId }),
   }
 
-  const container = await createContainer(accessToken, userId, containerParams)
-
-  // Wait for container to be ready using status polling
-  // Videos may take longer due to R2 URL fetching
-  await waitForContainerReady(accessToken, container.id, {
+  return publishWithContainer(accessToken, userId, containerParams, {
     maxWaitMs: 60000,
+    containerType: 'Video',
   })
-
-  const result = await publishContainer(accessToken, userId, {
-    container_id: container.id,
-  })
-
-  return result.id
 }
 
 /**
@@ -258,10 +260,18 @@ export async function publishCarouselPost(
 
     const itemContainer = await createContainer(accessToken, userId, itemParams)
     console.log(`[Carousel] Created item container ${i + 1}/${mediaItems.length}: ${itemContainer.id}`)
+
+    // Wait for child container to be ready before creating next item
+    const itemMaxWaitMs = item.type === 'video' ? 60000 : 30000
+    await waitForContainerReady(accessToken, itemContainer.id, {
+      maxWaitMs: itemMaxWaitMs,
+    })
+    console.log(`[Carousel] Item container ${i + 1}/${mediaItems.length} ready`)
+
     childContainerIds.push(itemContainer.id)
 
     // Small delay between item creations to avoid rate limiting
-    await new Promise((resolve) => setTimeout(resolve, CAROUSEL_ITEM_DELAY_MS))
+    // await new Promise((resolve) => setTimeout(resolve, CAROUSEL_ITEM_DELAY_MS))
   }
 
   // Step 2: Create carousel container with children
@@ -295,5 +305,6 @@ export async function publishCarouselPost(
     container_id: carouselContainer.id,
   })
 
+  console.log(`[Carousel] Published carousel: ${result.id}`)
   return result.id
 }
