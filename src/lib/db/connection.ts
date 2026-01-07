@@ -1,5 +1,6 @@
 import 'reflect-metadata'
 import { DataSource, DataSourceOptions } from 'typeorm'
+import path from 'path'
 
 declare global {
   // eslint-disable-next-line no-var
@@ -7,13 +8,15 @@ declare global {
 }
 
 /**
- * Dynamically import entities to avoid circular dependency issues.
- * All entities must be listed here for TypeORM to recognize them.
- * This approach allows entities to reference each other without import cycles.
+ * Dynamically import entities using absolute paths to avoid circular dependencies
+ * and ensure consistent resolution across different environments (local, prod, Docker).
  */
 async function loadEntities() {
-  const base = process.cwd()
-  const entitiesPath = `${base}/src/database/entities`
+  // Get the project root directory - works in all environments
+  const projectRoot = process.env.PWD || process.cwd()
+
+  // Build absolute path to entities directory
+  const entitiesDir = path.join(projectRoot, 'src', 'database', 'entities')
 
   const [
     { User },
@@ -25,14 +28,14 @@ async function loadEntities() {
     { Analytics },
     { UploadedMedia },
   ] = await Promise.all([
-    import(`${entitiesPath}/User.entity`),
-    import(`${entitiesPath}/SocialAccount.entity`),
-    import(`${entitiesPath}/RefreshToken.entity`),
-    import(`${entitiesPath}/Post.entity`),
-    import(`${entitiesPath}/PostPublication.entity`),
-    import(`${entitiesPath}/Media.entity`),
-    import(`${entitiesPath}/Analytics.entity`),
-    import(`${entitiesPath}/UploadedMedia.entity`),
+    import(path.join(entitiesDir, 'User.entity.ts')),
+    import(path.join(entitiesDir, 'SocialAccount.entity.ts')),
+    import(path.join(entitiesDir, 'RefreshToken.entity.ts')),
+    import(path.join(entitiesDir, 'Post.entity.ts')),
+    import(path.join(entitiesDir, 'PostPublication.entity.ts')),
+    import(path.join(entitiesDir, 'Media.entity.ts')),
+    import(path.join(entitiesDir, 'Analytics.entity.ts')),
+    import(path.join(entitiesDir, 'UploadedMedia.entity.ts')),
   ])
 
   return [User, SocialAccount, RefreshToken, Post, PostPublication, Media, Analytics, UploadedMedia]
