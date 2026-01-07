@@ -9,6 +9,7 @@ import {
 import { BaseEntity } from './base.entity'
 import type { User } from './User.entity'
 import type { PostPublication } from './PostPublication.entity'
+import type { Post } from './Post.entity'
 import { Platform, AccountStatus, AccountHealth } from './enums'
 
 @Entity('social_accounts')
@@ -164,4 +165,7 @@ export class SocialAccount extends BaseEntity {
     cascade: true,
   })
   publications!: PostPublication[]
+
+  @OneToMany('Post', 'socialAccount')
+  posts!: Post[]
 }
