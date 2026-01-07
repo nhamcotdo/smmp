@@ -50,7 +50,7 @@ export class User extends BaseEntity {
 
   @Column({
     type: 'varchar',
-    length: 500,
+    length: 2048,
     nullable: true,
   })
   avatar!: string

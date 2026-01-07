@@ -65,7 +65,7 @@ export class SocialAccount extends BaseEntity {
 
   @Column({
     type: 'varchar',
-    length: 255,
+    length: 2048,
     nullable: true,
     name: 'avatar',
   })
