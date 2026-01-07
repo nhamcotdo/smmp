@@ -13,6 +13,7 @@
     "type-check": "tsc --noEmit",
     "cron:publish": "npx tsx scripts/publish-scheduled-posts.ts",
     "db:init": "npx tsx scripts/init-db.ts",
+    "db:migrate": "npx tsx scripts/run-migrations.ts",
     "db:migration:generate": "typeorm migration:generate -d src/database/config/data-source.ts",
     "db:migration:run": "typeorm migration:run -d src/database/config/data-source.ts",
     "db:migration:revert": "typeorm migration:revert -d src/database/config/data-source.ts"
