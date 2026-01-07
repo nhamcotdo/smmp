@@ -6,6 +6,7 @@
 import {
   createContainer,
   publishContainer,
+  getContainerStatus,
 } from './threads.service'
 import type {
   CreateContainerParams,
@@ -18,27 +19,60 @@ import type {
 import { ThreadsMediaType } from '@/lib/types/threads'
 
 /**
- * Threads API wait time constants (in milliseconds)
- * Different media types require different processing times:
- * - Text/Image: Basic metadata and URL verification
- * - Video: Must fetch and transcode video from R2 URLs
- * - Carousel: Multiple child containers + parent container validation
- * - Carousel with video: Needs same wait time as video posts
+ * Threads API polling configuration
  */
-const THREADS_API_WAIT_TIMES = {
-  /** Text posts only need metadata validation */
-  TEXT_CONTAINER_MS: 2000,
-  /** Image posts need to verify URL accessibility */
-  IMAGE_CONTAINER_MS: 2000,
-  /** Videos must be fetched and transcoded by Threads servers */
-  VIDEO_CONTAINER_MS: 30000,
-  /** Delay between carousel item creations to avoid rate limiting */
-  CAROUSEL_ITEM_DELAY_MS: 3000,
-  /** Carousel container with images only */
-  CAROUSEL_CONTAINER_MS: 30000,
-  /** Carousel container with videos (same as video posts) */
-  CAROUSEL_CONTAINER_WITH_VIDEO_MS: 30000,
-} as const
+
+/** Delay between carousel item creations to avoid rate limiting */
+const CAROUSEL_ITEM_DELAY_MS = 3000
+
+/**
+ * Poll container status until it's ready or failed
+ * Uses exponential backoff to avoid hammering the API
+ */
+async function waitForContainerReady(
+  accessToken: string,
+  containerId: string,
+  options: {
+    maxWaitMs?: number
+    initialPollIntervalMs?: number
+    maxPollIntervalMs?: number
+  } = {}
+): Promise<void> {
+  const {
+    maxWaitMs = 60000,
+    initialPollIntervalMs = 1000,
+    maxPollIntervalMs = 5000,
+  } = options
+
+  const startTime = Date.now()
+  let pollInterval = initialPollIntervalMs
+
+  while (Date.now() - startTime < maxWaitMs) {
+    const status = await getContainerStatus(accessToken, containerId)
+
+    if (status.status === 'FINISHED' || status.status === 'PUBLISHED') {
+      console.log(`[Container ${containerId}] Ready with status: ${status.status}`)
+      return
+    }
+
+    if (status.status === 'ERROR' || status.status === 'EXPIRED') {
+      throw new Error(
+        `Container ${containerId} failed with status: ${status.status}` +
+        (status.error_message ? `. Error: ${status.error_message}` : '')
+      )
+    }
+
+    console.log(`[Container ${containerId}] Status: ${status.status}, polling again in ${pollInterval}ms...`)
+
+    await new Promise((resolve) => setTimeout(resolve, pollInterval))
+    pollInterval = Math.min(pollInterval * 1.5, maxPollIntervalMs)
+  }
+
+  throw new Error(
+    `Container ${containerId} not ready after ${maxWaitMs}ms. ` +
+    `Consider increasing maxWaitMs or checking Threads API status.`
+  )
+}
 
 export interface PublishTextPostParams {
   text: string
@@ -115,8 +149,10 @@ export async function publishTextPost(
 
   const container = await createContainer(accessToken, userId, containerParams)
 
-  // Wait a moment for container to be ready (Threads API requirement)
-  await new Promise((resolve) => setTimeout(resolve, THREADS_API_WAIT_TIMES.TEXT_CONTAINER_MS))
+  // Wait for container to be ready using status polling
+  await waitForContainerReady(accessToken, container.id, {
+    maxWaitMs: 30000,
+  })
 
   const result = await publishContainer(accessToken, userId, {
     container_id: container.id,
@@ -144,8 +180,10 @@ export async function publishImagePost(
 
   const container = await createContainer(accessToken, userId, containerParams)
 
-  // Wait a moment for container to be ready
-  await new Promise((resolve) => setTimeout(resolve, THREADS_API_WAIT_TIMES.IMAGE_CONTAINER_MS))
+  // Wait for container to be ready using status polling
+  await waitForContainerReady(accessToken, container.id, {
+    maxWaitMs: 30000,
+  })
 
   const result = await publishContainer(accessToken, userId, {
     container_id: container.id,
@@ -173,9 +211,11 @@ export async function publishVideoPost(
 
   const container = await createContainer(accessToken, userId, containerParams)
 
-  // Wait for Threads API to fetch and process the video
-  // R2 URLs may take longer to be accessible by Threads servers
-  await new Promise((resolve) => setTimeout(resolve, THREADS_API_WAIT_TIMES.VIDEO_CONTAINER_MS))
+  // Wait for container to be ready using status polling
+  // Videos may take longer due to R2 URL fetching
+  await waitForContainerReady(accessToken, container.id, {
+    maxWaitMs: 60000,
+  })
 
   const result = await publishContainer(accessToken, userId, {
     container_id: container.id,
@@ -204,7 +244,8 @@ export async function publishCarouselPost(
 
   // Step 1: Create item containers for each media
   const childContainerIds: string[] = []
-  for (const item of mediaItems) {
+  for (let i = 0; i < mediaItems.length; i++) {
+    const item = mediaItems[i]
     const itemParams: CreateContainerParams = {
       media_type: item.type === 'image' ? ThreadsMediaType.IMAGE : ThreadsMediaType.VIDEO,
       is_carousel_item: true,
@@ -216,10 +257,11 @@ export async function publishCarouselPost(
     }
 
     const itemContainer = await createContainer(accessToken, userId, itemParams)
+    console.log(`[Carousel] Created item container ${i + 1}/${mediaItems.length}: ${itemContainer.id}`)
     childContainerIds.push(itemContainer.id)
 
     // Small delay between item creations to avoid rate limiting
-    await new Promise((resolve) => setTimeout(resolve, THREADS_API_WAIT_TIMES.CAROUSEL_ITEM_DELAY_MS))
+    await new Promise((resolve) => setTimeout(resolve, CAROUSEL_ITEM_DELAY_MS))
   }
 
   // Step 2: Create carousel container with children
@@ -237,16 +279,16 @@ export async function publishCarouselPost(
   }
 
   const carouselContainer = await createContainer(accessToken, userId, carouselContainerParams)
+  console.log(`[Carousel] Created carousel container: ${carouselContainer.id}`)
 
-  // Wait for carousel container to be ready
-  // Carousels with videos need more time (30s) similar to video posts
-  // because R2 URLs may take longer to be accessible by Threads servers
+  // Wait for carousel container to be ready using status polling
+  // Carousels with videos may take longer due to R2 URL fetching
   const hasVideoItems = mediaItems.some((item) => item.type === 'video')
-  const waitTimeMs = hasVideoItems
-    ? THREADS_API_WAIT_TIMES.CAROUSEL_CONTAINER_WITH_VIDEO_MS
-    : THREADS_API_WAIT_TIMES.CAROUSEL_CONTAINER_MS
-  console.log(`[Carousel] Waiting ${waitTimeMs}ms for carousel container to be ready (has videos: ${hasVideoItems})`)
-  await new Promise((resolve) => setTimeout(resolve, waitTimeMs))
+  const maxWaitMs = hasVideoItems ? 60000 : 30000
+  console.log(`[Carousel] Waiting for carousel container to be ready (max ${maxWaitMs}ms, has videos: ${hasVideoItems})`)
+  await waitForContainerReady(accessToken, carouselContainer.id, {
+    maxWaitMs,
+  })
 
   // Step 3: Publish the carousel container
   const result = await publishContainer(accessToken, userId, {

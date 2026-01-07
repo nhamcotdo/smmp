@@ -503,6 +503,43 @@ export function extractAllMetrics(
 }
 
 /**
+ * Container status from Threads API
+ */
+export interface ThreadsContainerStatus {
+  id: string
+  status: 'FINISHED' | 'IN_PROGRESS' | 'ERROR' | 'EXPIRED' | 'PUBLISHED'
+  error_message?: string
+}
+
+/**
+ * Check container status
+ * @param accessToken - Threads access token
+ * @param containerId - Container ID to check
+ * @returns Container status
+ */
+export async function getContainerStatus(
+  accessToken: string,
+  containerId: string
+): Promise<ThreadsContainerStatus> {
+  const config = getConfig()
+  const fields = ['status', 'error_message'].join(',')
+  const url = `${config.apiHost}/${containerId}?fields=${encodeURIComponent(fields)}`
+
+  const response = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  })
+
+  if (!response.ok) {
+    throw new Error(`Failed to check container status: ${response.status} ${response.statusText}`)
+  }
+
+  const data = await response.json()
+  return data as ThreadsContainerStatus
+}
+
+/**
  * Get the authorization URL for OAuth flow
  * @param scopes - OAuth scopes to request
  * @param state - State parameter for CSRF protection
