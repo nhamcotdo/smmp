@@ -8,6 +8,7 @@ import {
 } from '@/lib/services/threads.service'
 import { validateState } from '@/lib/services/oauth-state.service'
 import { Platform, AccountStatus, AccountHealth } from '@/database/entities/enums'
+import { getBaseUrl } from '@/lib/utils/url'
 
 /**
  * GET /api/channels/threads/callback
@@ -23,30 +24,32 @@ export async function GET(request: NextRequest) {
     const errorReason = searchParams.get('error_reason')
     const state = searchParams.get('state')
 
+    const baseUrl = getBaseUrl(request)
+
     // Check for OAuth errors
     if (error) {
       return NextResponse.redirect(
-        new URL(`/channels?error=${error}&reason=${errorReason || 'unknown'}`, request.url)
+        new URL(`/channels?error=${error}&reason=${errorReason || 'unknown'}`, baseUrl)
       )
     }
 
     if (!code) {
       return NextResponse.redirect(
-        new URL('/channels?error=no_code', request.url)
+        new URL('/channels?error=no_code', baseUrl)
       )
     }
 
     // Validate state parameter to prevent CSRF attacks
     if (!state) {
       return NextResponse.redirect(
-        new URL('/channels?error=invalid_state&hint=Missing+state+parameter', request.url)
+        new URL('/channels?error=invalid_state&hint=Missing+state+parameter', baseUrl)
       )
     }
 
     const userId = validateState(state)
     if (!userId) {
       return NextResponse.redirect(
-        new URL('/channels?error=invalid_state&hint=Invalid+or+expired+state+parameter', request.url)
+        new URL('/channels?error=invalid_state&hint=Invalid+or+expired+state+parameter', baseUrl)
       )
     }
 
@@ -108,14 +111,15 @@ export async function GET(request: NextRequest) {
 
     // Redirect to channels page with success
     return NextResponse.redirect(
-      new URL('/channels?success=threads_connected', request.url)
+      new URL('/channels?success=threads_connected', baseUrl)
     )
   } catch (error) {
     console.error('Threads OAuth callback error:', error)
+    const baseUrl = getBaseUrl(request)
     return NextResponse.redirect(
       new URL(
         `/channels?error=${encodeURIComponent(error instanceof Error ? error.message : 'Connection failed')}`,
-        request.url
+        baseUrl
       )
     )
   }
