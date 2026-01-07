@@ -35,7 +35,7 @@ const THREADS_API_WAIT_TIMES = {
   /** Delay between carousel item creations to avoid rate limiting */
   CAROUSEL_ITEM_DELAY_MS: 3000,
   /** Carousel container with images only */
-  CAROUSEL_CONTAINER_MS: 10000,
+  CAROUSEL_CONTAINER_MS: 30000,
   /** Carousel container with videos (same as video posts) */
   CAROUSEL_CONTAINER_WITH_VIDEO_MS: 30000,
 } as const
