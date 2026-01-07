@@ -54,10 +54,11 @@ export enum ThreadsMediaType {
 }
 
 export enum ThreadsReplyControl {
-  EVERYONE = 'everyone',
-  MENTIONED = 'mentioned',
-  FOLLOWERS = 'followers',
-  NONE = 'none',
+  EVERYONE = 'EVERYONE',
+  ACCOUNTS_YOU_FOLLOW = 'ACCOUNTS_YOU_FOLLOW',
+  MENTIONED_ONLY = 'MENTIONED_ONLY',
+  PARENT_POST_AUTHOR_ONLY = 'PARENT_POST_AUTHOR_ONLY',
+  FOLLOWERS_ONLY = 'FOLLOWERS_ONLY',
 }
 
 export enum TextEntityType {

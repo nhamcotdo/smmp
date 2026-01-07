@@ -19,13 +19,6 @@ import type {
 import { ThreadsMediaType } from '@/lib/types/threads'
 
 /**
- * Threads API polling configuration
- */
-
-/** Delay between carousel item creations to avoid rate limiting */
-const CAROUSEL_ITEM_DELAY_MS = 3000
-
-/**
  * Poll container status until it's ready or failed
  * Uses exponential backoff to avoid hammering the API
  */
@@ -269,9 +262,6 @@ export async function publishCarouselPost(
     console.log(`[Carousel] Item container ${i + 1}/${mediaItems.length} ready`)
 
     childContainerIds.push(itemContainer.id)
-
-    // Small delay between item creations to avoid rate limiting
-    // await new Promise((resolve) => setTimeout(resolve, CAROUSEL_ITEM_DELAY_MS))
   }
 
   // Step 2: Create carousel container with children

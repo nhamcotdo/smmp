@@ -215,7 +215,7 @@ export async function publishScheduledPosts(): Promise<PublishResult[]> {
             }
             if (typeof threadsOptions.replyControl === 'string') {
               // Validate reply control value before casting
-              const validReplyControls = new Set(['everyone', 'mentioned', 'followers', 'none'])
+              const validReplyControls = new Set(['EVERYONE', 'ACCOUNTS_YOU_FOLLOW', 'MENTIONED_ONLY', 'PARENT_POST_AUTHOR_ONLY', 'FOLLOWERS_ONLY'])
               if (validReplyControls.has(threadsOptions.replyControl)) {
                 carouselPostParams.replyControl = threadsOptions.replyControl as ThreadsReplyControl
               } else {
@@ -274,7 +274,7 @@ export async function publishScheduledPosts(): Promise<PublishResult[]> {
             }
             if (typeof threadsOptions.replyControl === 'string') {
               // Validate reply control value before casting
-              const validReplyControls = new Set(['everyone', 'mentioned', 'followers', 'none'])
+              const validReplyControls = new Set(['EVERYONE', 'ACCOUNTS_YOU_FOLLOW', 'MENTIONED_ONLY', 'PARENT_POST_AUTHOR_ONLY', 'FOLLOWERS_ONLY'])
               if (validReplyControls.has(threadsOptions.replyControl)) {
                 textPostParams.replyControl = threadsOptions.replyControl as ThreadsReplyControl
               } else {

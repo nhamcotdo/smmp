@@ -255,7 +255,7 @@ async function publishToThreads(request: Request, user: User) {
     let publicationId: string
 
     // Valid reply control values - direct validation without fragile enum conversion
-    const validReplyControls = new Set(['everyone', 'mentioned', 'followers', 'none'])
+    const validReplyControls = new Set(['EVERYONE', 'ACCOUNTS_YOU_FOLLOW', 'MENTIONED_ONLY', 'PARENT_POST_AUTHOR_ONLY', 'FOLLOWERS_ONLY'])
 
     // Build threads options with safe type conversion
     const builtThreadsOptions = threadsOptions ? {
