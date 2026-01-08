@@ -1483,7 +1483,7 @@ export default function CreatePostPage() {
                 {showAdvancedOptions && (
                   <div className="space-y-4 rounded-lg bg-zinc-50 p-4 dark:bg-zinc-800">
                     {/* Link Attachment */}
-                    <div>
+                    {/* <div>
                       <label htmlFor="linkAttachment" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
                         Link Attachment URL
                       </label>
@@ -1495,7 +1495,7 @@ export default function CreatePostPage() {
                         placeholder="https://example.com"
                         className="block w-full rounded-md border border-zinc-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
                       />
-                    </div>
+                    </div> */}
 
                     {/* Topic Tag */}
                     <div>
@@ -1533,7 +1533,7 @@ export default function CreatePostPage() {
                     </div>
 
                     {/* Reply To ID */}
-                    <div>
+                    {/* <div>
                       <label htmlFor="replyToId" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
                         Reply To Post ID
                       </label>
@@ -1545,10 +1545,10 @@ export default function CreatePostPage() {
                         placeholder="Threads post ID to reply to"
                         className="block w-full rounded-md border border-zinc-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
                       />
-                    </div>
+                    </div> */}
 
                     {/* Location ID */}
-                    <div>
+                    {/* <div>
                       <label htmlFor="locationId" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
                         Location ID
                       </label>
@@ -1560,10 +1560,10 @@ export default function CreatePostPage() {
                         placeholder="Facebook Location ID"
                         className="block w-full rounded-md border border-zinc-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
                       />
-                    </div>
+                    </div> */}
 
                     {/* Auto Publish Text */}
-                    <div className="flex items-center gap-2">
+                    {/* <div className="flex items-center gap-2">
                       <input
                         type="checkbox"
                         id="autoPublishText"
@@ -1574,10 +1574,10 @@ export default function CreatePostPage() {
                       <label htmlFor="autoPublishText" className="text-sm text-zinc-700 dark:text-zinc-300">
                         Auto Publish Text
                       </label>
-                    </div>
+                    </div> */}
 
                     {/* Ghost Post */}
-                    <div className="flex items-center gap-2">
+                    {/* <div className="flex items-center gap-2">
                       <input
                         type="checkbox"
                         id="isGhostPost"
@@ -1588,10 +1588,10 @@ export default function CreatePostPage() {
                       <label htmlFor="isGhostPost" className="text-sm text-zinc-700 dark:text-zinc-300">
                         Ghost Post (unlisted)
                       </label>
-                    </div>
+                    </div> */}
 
                     {/* Poll Attachment */}
-                    <div className="rounded-md border border-zinc-200 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900">
+                    {/* <div className="rounded-md border border-zinc-200 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900">
                       <p className="mb-3 text-sm font-medium text-zinc-700 dark:text-zinc-300">Poll Attachment</p>
                       <div className="space-y-2">
                         <input
@@ -1623,43 +1623,7 @@ export default function CreatePostPage() {
                           className="block w-full rounded-md border border-zinc-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
                         />
                       </div>
-                    </div>
-
-                    {/* GIF Attachment */}
-                    <div className="rounded-md border border-zinc-200 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900">
-                      <p className="mb-3 text-sm font-medium text-zinc-700 dark:text-zinc-300">GIF Attachment</p>
-                      <div className="space-y-2">
-                        <input
-                          type="text"
-                          value={threadsOptions.gifAttachment?.gif_id || ''}
-                          onChange={(e) => setThreadsOptions({
-                            ...threadsOptions,
-                            gifAttachment: {
-                              ...threadsOptions.gifAttachment,
-                              gif_id: e.target.value,
-                              provider: threadsOptions.gifAttachment?.provider || 'TENOR'
-                            }
-                          })}
-                          placeholder="GIF ID (e.g., from Tenor)"
-                          className="block w-full rounded-md border border-zinc-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-                        />
-                        <select
-                          value={threadsOptions.gifAttachment?.provider || 'TENOR'}
-                          onChange={(e) => setThreadsOptions({
-                            ...threadsOptions,
-                            gifAttachment: {
-                              gif_id: threadsOptions.gifAttachment?.gif_id || '',
-                              provider: e.target.value
-                            }
-                          })}
-                          className="block w-full rounded-md border border-zinc-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-                        >
-                          <option value="TENOR">Tenor</option>
-                          {/* cspell:ignore GIPHY */}
-                          <option value="GIPHY">GIPHY</option>
-                        </select>
-                      </div>
-                    </div>
+                    </div> */}
                   </div>
                 )}
               </div>

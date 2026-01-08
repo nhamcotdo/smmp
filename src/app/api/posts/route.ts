@@ -76,6 +76,7 @@ interface CreatePostRequest {
   altText?: string
   scheduledFor?: string
   socialAccountId?: string
+  parentPostId?: string
   carouselMediaItems?: Array<{
     type: 'image' | 'video'
     url: string
@@ -197,7 +198,7 @@ async function getPosts(request: Request, user: User) {
 async function createPost(request: Request, user: User) {
   try {
     const body = await request.json() as CreatePostRequest
-    const { content, contentType, imageUrl, videoUrl, altText, scheduledFor, socialAccountId, carouselMediaItems, threadsOptions, scheduledComments } = body
+    const { content, contentType, imageUrl, videoUrl, altText, scheduledFor, socialAccountId, parentPostId, carouselMediaItems, threadsOptions, scheduledComments } = body
 
     if (!content?.trim() && !imageUrl && !videoUrl && !carouselMediaItems) {
       return NextResponse.json(
@@ -331,6 +332,21 @@ async function createPost(request: Request, user: User) {
       }
     }
 
+    // Validate parent post ID if provided
+    if (parentPostId) {
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(parentPostId)) {
+        return NextResponse.json(
+          {
+            data: null,
+            status: 400,
+            success: false,
+            message: 'Invalid parent post ID format',
+          } as unknown as ApiResponse<PostListItem>,
+          { status: 400 }
+        )
+      }
+    }
+
     // Validate scheduled date is in the future
     if (scheduledFor) {
       const scheduledDate = new Date(scheduledFor)
@@ -461,6 +477,7 @@ async function createPost(request: Request, user: User) {
       isScheduled: !!scheduledFor,
       scheduledAt: scheduledAtUTC,
       socialAccountId: socialAccountId || null,
+      parentPostId: parentPostId || null,
       metadata: threadsOptions ? { threads: threadsOptions } : undefined,
     })
 
@@ -494,7 +511,10 @@ async function createPost(request: Request, user: User) {
               scheduledAt: commentScheduledAt,
               socialAccountId: socialAccountId || null,
               commentDelayMinutes: comment.delayMinutes,
-              metadata: { threads: { replyToId: null } },
+              metadata: {
+                threads: {
+                },
+              },
             })
             await transactionalEntityManager.save(childPost)
 
