@@ -55,6 +55,7 @@ async function waitForContainerReady(
 
   const startTime = Date.now()
   let pollInterval = initialPollIntervalMs
+  let consecutiveFailures = 0
 
   while (Date.now() - startTime < maxWaitMs) {
     const status = await getContainerStatus(accessToken, containerId)
@@ -65,10 +66,21 @@ async function waitForContainerReady(
     }
 
     if (status.status === 'ERROR' || status.status === 'EXPIRED') {
-      throw new Error(
-        `Container ${containerId} failed with status: ${status.status}` +
-        (status.error_message ? `. Error: ${status.error_message}` : '')
-      )
+      consecutiveFailures++
+      console.log(`[Container ${containerId}] Failure ${consecutiveFailures}/3: ${status.status}` +
+        (status.error_message ? `. Error: ${status.error_message}` : ''))
+
+      if (consecutiveFailures >= 3) {
+        throw new Error(
+          `Container ${containerId} failed with status: ${status.status} after 3 consecutive attempts` +
+          (status.error_message ? `. Error: ${status.error_message}` : '')
+        )
+      }
+
+      // Continue polling if less than 3 failures
+      console.log(`[Container ${containerId}] Retrying... (attempt ${consecutiveFailures + 1}/3)`)
+    } else {
+      consecutiveFailures = 0 // Reset counter on non-error statuses
     }
 
     console.log(`[Container ${containerId}] Status: ${status.status}, polling again in ${pollInterval}ms...`)
