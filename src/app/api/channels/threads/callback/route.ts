@@ -66,7 +66,8 @@ export async function GET(request: NextRequest) {
     const dataSource = await getConnection()
     const socialAccountRepository = dataSource.getRepository(SocialAccount)
 
-    // Check if account already exists
+    // Check if this specific Threads account (platformUserId) is already connected
+    // Allows multiple Threads accounts per user, but prevents duplicate connections
     const existingAccount = await socialAccountRepository.findOne({
       where: {
         userId,

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-SMMP (Social Media Management Platform) is a Next.js 16 application for managing social media content with Threads integration and scheduled publishing capabilities.
+SMMP (Social Media Management Platform) is a Next.js 16 application for managing social media content with Threads integration, scheduled publishing, and analytics tracking.
 
 ## Development Commands
 
@@ -17,99 +17,195 @@ SMMP (Social Media Management Platform) is a Next.js 16 application for managing
 ### Code Quality
 - `npm run type-check` - TypeScript type checking
 - `npm run lint` - ESLint
-- `npm run test` - Vitest tests
+- `npm run test` - Run Vitest tests
 - `npm run test:ui` - Vitest with UI
-- `npm run test:coverage` - Test coverage report
+- `npm run test:coverage` - Test coverage report (note: script may not exist)
 
 ### Background Jobs
 - `npm run cron:publish` - Manually trigger scheduled post publisher
-- Use external cron for production (see package.json for options)
+- Production: Use external cron services or systemd (see README.md)
 
-### Database
-- PostgreSQL required with TypeORM
-- Entities auto-generated from schema
-- No database migrations in this version
+### Database (TypeORM)
+- `npm run db:init` - Initialize database
+- `npm run db:migrate` - Run migrations
+- `npm run db:migration:generate` - Generate migration from schema changes
+- `npm run db:migration:run` - Apply pending migrations
+- `npm run db:migration:revert` - Revert last migration
 
 ## Architecture Overview
 
 ### Tech Stack
 - **Framework**: Next.js 16 with App Router
-- **Language**: TypeScript 5 (strict mode)
-- **Database**: PostgreSQL with TypeORM
-- **Authentication**: JWT with httpOnly cookies
+- **Language**: TypeScript 5 (strict mode, decorators enabled)
+- **Database**: PostgreSQL with TypeORM 0.3.28
+- **Authentication**: JWT with Passport + httpOnly cookies
 - **Styling**: Tailwind CSS 4
 - **Testing**: Vitest + Testing Library + jsdom
-- **Package Manager**: pnpm
+- **Package Manager**: npm (not pnpm - package.json shows npm scripts)
 
-### Key Architectural Patterns
+### Clean Architecture Layers
 
-1. **Clean Architecture Separation**
-   - `src/app/api/` - REST API routes (40+ endpoints)
-   - `src/lib/` - Business logic and services
-   - `src/database/` - TypeORM entities and repositories
-   - `src/components/` - Reusable React components
+1. **API Layer** (`src/app/api/`)
+   - RESTful endpoints organized by domain (auth, channels, posts, analytics, jobs)
+   - No middleware folder - auth logic in route handlers and AuthContext
+   - 25+ endpoints across 6 domains
 
-2. **Authentication Flow**
-   - JWT tokens with refresh mechanism
-   - httpOnly cookies for security
-   - Role-based access (Admin, User, Viewer)
-   - OAuth 2.0 for Threads integration
+2. **Business Logic** (`src/lib/`)
+   - `services/` - External API integrations (Threads, Douyin, R2, media proxy)
+   - `jobs/` - Background job logic (scheduled post publisher)
+   - `api/` - Internal API client functions (auth, channels)
+   - `types/` - TypeScript definitions (auth, analytics, threads)
+   - `validators/` - Zod validation schemas
+   - `utils/` - Shared utilities (database config, content parsing, timezone)
 
-3. **Database Entities (10 total)**
-   - User, SocialAccount, Post, PostPublication, Media, UploadedMedia
-   - Analytics, RefreshToken, BaseEntity, Enums
-   - Repositories in `src/database/repositories/`
+3. **Data Layer** (`src/database/`)
+   - `entities/` - TypeORM entities (10 entities)
+   - `db/connection.ts` - Singleton database connection with global caching
+   - No repositories pattern - direct DataSource usage
 
-4. **Social Media Integration**
-   - Threads API with OAuth 2.0
-   - Platform enum ready for Twitter/X, LinkedIn, etc.
-   - Extensible content types (text, image, video, carousel)
+4. **Presentation** (`src/`)
+   - `app/` - Next.js pages and layouts
+   - `components/` - React components
+   - `contexts/` - React contexts (AuthContext)
 
-### Important File Locations
+### Database Entity Relationships
 
-- **Constants**: `src/lib/constants.ts` - Centralized magic numbers
-- **Validation**: `src/lib/validators/` - Zod schemas
-- **Services**: `src/lib/services/` - External API integrations
-- **API Client**: `src/lib/api/` - Internal API functions
-- **Types**: `src/lib/types/` - TypeScript definitions
+**Core Entities:**
+- `User` - Base user entity with cascade delete to social data
+- `SocialAccount` - Connected social media accounts (Threads, etc.)
+- `RefreshToken` - JWT refresh tokens with device tracking
+- `Post` - Content posts with parent-child comment support
+- `PostPublication` - Published post instances per platform
+- `Media` - Media attachments (images, videos) linked to posts
+- `UploadedMedia` - Uploaded file metadata
+- `Analytics` - Platform analytics data
+
+**Key Relationships:**
+- User → SocialAccount (one-to-many, CASCADE)
+- User → Post (one-to-many, CASCADE)
+- SocialAccount → Post (many-to-one, SET NULL)
+- Post → Post (self-reference for parent-child comments via `parentPostId`)
+- Post → PostPublication (one-to-many)
+- Post → Media (one-to-many)
+
+**Important Indexes:**
+- `idx_posts_parent_status_scheduled` - Optimizes scheduled comment queries
+- `idx_posts_user_status` - User's posts by status filtering
+- `idx_social_accounts_expires_at` - Token expiration queries
+
+### Threads API Integration Patterns
+
+**OAuth 2.0 Flow (threads.service.ts):**
+1. Generate OAuth URL with state parameter validation
+2. Exchange code for short-lived token
+3. Convert to long-lived token (60 days)
+4. Store same value in both `accessToken` and `refreshToken` fields
+5. Refresh using the access token as the refresh token parameter
+
+**Publishing Flow (threads-publisher.service.ts):**
+1. Create container with post content/media
+2. Poll for container readiness (with backoff and timeout)
+3. Publish container using `creation_id` parameter (NOT `container_id`)
+4. Handle text (30s), image (30s), video (10min) with different timeouts
+
+**Scheduled Comments Feature:**
+- Parent-child relationship via `parentPostId` field
+- Maximum 10 scheduled comments per parent post
+- Comments scheduled with `scheduledAt` timestamp
+- Publisher processes parent and child posts in batches
+
+### Global Database Connection Pattern
+
+The app uses a singleton connection pattern (`src/lib/db/connection.ts`):
+```typescript
+// Global connection caching in development
+declare global {
+  var __typeorm__: DataSource | undefined
+}
+```
+
+Use `getConnection()` everywhere - never create new DataSource instances directly. The connection is cached globally and reused across hot reloads in development.
+
+### Authentication Architecture
+
+- JWT with short-lived access tokens (15min) + long-lived refresh tokens (30d)
+- Passport JWT strategy extracts from httpOnly cookies
+- AuthContext provides auth state to React components
+- Role-based access: Admin, User, Viewer (via enum)
+- "Remember Me" functionality extends refresh token expiry
 
 ### Development Constraints
 
-- No Vietnamese in code or comments
-- No `any` or `unknown` types (TypeScript strict)
+**Code Style:**
+- No Vietnamese in code or comments (use English only)
+- No `any` or `unknown` types (TypeScript strict mode)
 - No deprecated APIs (e.g., `.substr()` → `.slice()`)
-- No magic numbers without constants
-- Modular, reusable code required
-- Proper error handling with specific messages
+- No magic numbers - use `src/lib/constants.ts`
+- Modular, reusable code with proper error handling
 
-### Threads OAuth Configuration
+**TypeScript Configuration:**
+- `strict: true` enabled
+- `experimentalDecorators: true` for TypeORM entities
+- `emitDecoratorMetadata: true` for entity type metadata
+- Path aliases: `@/*` maps to `./src/*`
 
-- Requires HTTPS for OAuth flow
-- Uses `threads-sample.meta` for local development
-- SSL certificates in `cert/` directory (mkcert)
-- Automatic token refresh (60-day tokens)
+### Constants Reference (`src/lib/constants.ts`)
 
-### Testing Guidelines
+- `SCHEDULED_COMMENTS.MAX_ALLOWED` - Maximum scheduled comments per post
+- `CAROUSEL.MIN/MAX_ITEMS` - Carousel media limits (2-20)
+- `THREADS_POLLING.*` - API polling timeouts and intervals
+- `MEDIA_PROXY.*` - Media size limits and presigned URL expiry
+- `VALID_REPLY_CONTROLS` - Set of valid Threads reply control values
 
-- Use Vitest with Testing Library
-- Test files in `tests/` directory
-- Mock external APIs in tests
-- Aim for comprehensive coverage
-- Run tests before commits
+### Threads HTTPS Setup
 
-### Package.json Scripts Available
+**Required for OAuth:**
+1. Install mkcert: `brew install mkcert && mkcert -install`
+2. Generate certs: `mkcert threads-sample.meta localhost 127.0.0.1` (in `cert/` dir)
+3. Add to `/etc/hosts`: `127.0.0.1 threads-sample.meta`
+4. Run: `npm run dev:https` (uses custom dev-server-https.ts)
 
-- `pnpm dev` - Development server
-- `pnpm build` - Build for production
-- `pnpm test` - Run tests
-- `pnpm type-check` - Check types
-- `pnpm lint` - Lint code
-- `pnpm cron:publish` - Run scheduled posts
+**Environment Variables Needed:**
+```
+HOSTNAME=threads-sample.meta
+PORT=8000
+THREADS_REDIRECT_URI=https://threads-sample.meta:8000/api/channels/threads/callback
+ALLOWED_DEV_ORIGINS=threads-sample.meta,localhost,127.0.0.1
+```
 
-### Recent Refactoring Notes (2025-01-08)
+### Scheduled Posts Publisher
 
-- Fixed all deprecated `.substr()` calls
-- Removed all `any` types for better type safety
-- Centralized magic numbers in constants
-- Improved error messages and consistency
-- Enhanced JSDoc documentation
+**Entry Point:** `scripts/publish-scheduled-posts.ts` → `src/lib/jobs/publish-scheduled-posts.ts`
+
+**Algorithm:**
+1. Query posts with `status=SCHEDULED` AND `scheduledAt < NOW`
+2. Batch load parent posts for child comments
+3. Group by social account to minimize account queries
+4. For each post: validate media, call publisher, create PostPublication record
+5. Update post status to PUBLISHED or FAILED
+6. Return summary with processed/succeeded/failed/missed counts
+
+**Cron Setup (see README.md for full options):**
+- crontab: `*/5 * * * * cd /path/to/smmp && npm run cron:publish >> logs/cron.log 2>&1`
+- systemd: Use timer unit for 5-minute intervals
+- External: POST to `/api/jobs/publish-scheduled` with `Authorization: Bearer CRON_SECRET`
+
+### Important Architectural Notes
+
+**No Migrations in Development:**
+- `synchronize: true` in non-production (TypeORM auto-creates tables)
+- Generate migrations only for production deployments
+
+**Media Handling:**
+- R2 presigned URLs for uploads (via r2-presigned.service.ts)
+- Media proxy for external image handling (media-proxy.service.ts)
+- Maximum sizes: 10MB images, 50MB videos
+
+**Douyin Integration:**
+- Separate service for Douyin (Chinese TikTok) content parsing
+- Endpoint: `/api/parse/douyin`
+
+**Testing:**
+- Tests in `tests/` directory (not `__tests__`)
+- Mock external APIs (Threads, Douyin, etc.)
+- Use Vitest with jsdom environment

@@ -17,7 +17,8 @@ import { Platform, AccountStatus, AccountHealth } from './enums'
 @Index('idx_social_accounts_platform', ['platform'])
 @Index('idx_social_accounts_status', ['status'])
 @Index('idx_social_accounts_health', ['health'])
-@Index('idx_social_accounts_user_platform', ['userId', 'platform'], { unique: true })
+@Index('idx_social_accounts_user_platform', ['userId', 'platform'])
+@Index('idx_social_accounts_user_platform_unique', ['userId', 'platform', 'platformUserId'], { unique: true })
 @Index('idx_social_accounts_expires_at', ['expiresAt'])
 export class SocialAccount extends BaseEntity {
   @Column({

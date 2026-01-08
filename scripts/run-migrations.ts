@@ -16,6 +16,9 @@ import { createDatabaseConfig } from '@/lib/utils'
 
 // Import migrations
 import { IncreaseAvatarLength1704600000000 } from '../src/database/migrations/1704600000000-IncreaseAvatarLength'
+import { AddSocialAccountIdToPosts1704600000001 } from '../src/database/migrations/1704600000001-AddSocialAccountIdToPosts'
+import { AddPostParentRelation1704600000002 } from '../src/database/migrations/1704600000002-AddPostParentRelation'
+import { RemoveUniqueConstraintUserPlatform1704600000003 } from '../src/database/migrations/1704600000003-RemoveUniqueConstraintUserPlatform'
 
 async function runMigrations() {
   console.log('🚀 Starting database migrations...')
@@ -25,7 +28,10 @@ async function runMigrations() {
   const dataSource = new DataSource(
     createDatabaseConfig({
       migrations: [
-        IncreaseAvatarLength1704600000000
+        IncreaseAvatarLength1704600000000,
+        AddSocialAccountIdToPosts1704600000001,
+        AddPostParentRelation1704600000002,
+        RemoveUniqueConstraintUserPlatform1704600000003,
       ],
       logging: true,
     })
