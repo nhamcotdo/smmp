@@ -15,7 +15,6 @@ import 'reflect-metadata'
 import { config } from 'dotenv'
 config()
 
-import 'reflect-metadata'
 import { DataSource } from 'typeorm'
 import { createDatabaseConfig } from '@/lib/utils'
 

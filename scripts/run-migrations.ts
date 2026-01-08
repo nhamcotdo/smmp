@@ -31,10 +31,6 @@ async function runMigrations() {
     })
   )
 
-  if (process.env.DATABASE_URL) {
-    dataSource.setOptions({ url: process.env.DATABASE_URL })
-  }
-
   try {
     console.log('📡 Connecting to database...')
     await dataSource.initialize()

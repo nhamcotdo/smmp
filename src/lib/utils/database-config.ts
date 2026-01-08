@@ -11,6 +11,15 @@ export interface DatabaseConfigOverrides {
 }
 
 /**
+ * Safely parse a string to a number, returning the default value if parsing fails
+ */
+function parseNumber(value: string | undefined, defaultValue: number): number {
+  if (value === undefined) return defaultValue
+  const parsed = parseInt(value, 10)
+  return isNaN(parsed) ? defaultValue : parsed
+}
+
+/**
  * Create TypeORM DataSource options with environment-based configuration
  * Centralizes database configuration to prevent duplication
  */
@@ -18,14 +27,16 @@ export function createDatabaseConfig(overrides: DatabaseConfigOverrides = {}): D
   const baseConfig = {
     type: 'postgres',
     host: process.env.DATABASE_HOST ?? 'localhost',
-    port: parseInt(process.env.DATABASE_PORT ?? '5432', 10),
+    port: parseNumber(process.env.DATABASE_PORT, 5432),
     username: process.env.DATABASE_USER ?? 'postgres',
     password: process.env.DATABASE_PASSWORD ?? 'postgres',
     database: process.env.DATABASE_NAME ?? 'smmp_db',
     ssl: process.env.DATABASE_SSL === 'true' ? { rejectUnauthorized: false } : false,
     extra: {
-      max: parseInt(process.env.DATABASE_POOL_MAX ?? '10', 10),
-      min: parseInt(process.env.DATABASE_POOL_MIN ?? '2', 10),
+      max: parseNumber(process.env.DATABASE_POOL_MAX, 10),
+      min: parseNumber(process.env.DATABASE_POOL_MIN, 2),
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 2000,
       ...overrides.extra,
     },
     ...overrides,
