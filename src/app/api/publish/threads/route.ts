@@ -22,6 +22,14 @@ import { Platform, PostStatus, ContentType, MediaType } from '@/database/entitie
 import type { ApiResponse } from '@/lib/types'
 import { validateMediaUrlForPublishing } from '@/lib/utils/content-parser'
 
+interface ScheduledComment {
+  content: string
+  delayMinutes: number
+  imageUrl?: string
+  videoUrl?: string
+  altText?: string
+}
+
 interface PublishRequest {
   content: string
   channelId: string
@@ -53,6 +61,7 @@ interface PublishRequest {
     }
     isGhostPost?: boolean
   }
+  scheduledComments?: ScheduledComment[]
 }
 
 interface PublishResponse {
@@ -68,7 +77,7 @@ interface PublishResponse {
 async function publishToThreads(request: Request, user: User) {
   try {
     const body = await request.json() as PublishRequest
-    const { content, channelId, imageUrl, videoUrl, altText, carouselMediaItems, threadsOptions } = body
+    const { content, channelId, imageUrl, videoUrl, altText, carouselMediaItems, threadsOptions, scheduledComments } = body
 
     if (!content?.trim() && !imageUrl && !videoUrl && !carouselMediaItems?.length) {
       return NextResponse.json(
@@ -154,6 +163,80 @@ async function publishToThreads(request: Request, user: User) {
             } as unknown as ApiResponse<PublishResponse>,
             { status: 400 }
           )
+        }
+      }
+    }
+
+    // Validate scheduled comments
+    if (scheduledComments && scheduledComments.length > 0) {
+      if (scheduledComments.length > 10) {
+        return NextResponse.json(
+          {
+            data: null,
+            status: 400,
+            success: false,
+            message: 'Maximum 10 scheduled comments allowed per post',
+          } as unknown as ApiResponse<PublishResponse>,
+          { status: 400 }
+        )
+      }
+
+      for (let i = 0; i < scheduledComments.length; i++) {
+        const comment = scheduledComments[i]
+
+        if (!comment.content?.trim() && !comment.imageUrl && !comment.videoUrl) {
+          return NextResponse.json(
+            {
+              data: null,
+              status: 400,
+              success: false,
+              message: `Comment ${i + 1} must have content or media`,
+            } as unknown as ApiResponse<PublishResponse>,
+            { status: 400 }
+          )
+        }
+
+        if (comment.delayMinutes < 0) {
+          return NextResponse.json(
+            {
+              data: null,
+              status: 400,
+              success: false,
+              message: `Comment ${i + 1} delay must be 0 or greater`,
+            } as unknown as ApiResponse<PublishResponse>,
+            { status: 400 }
+          )
+        }
+
+        // Validate comment media URLs
+        if (comment.imageUrl) {
+          const validation = validateMediaUrlForPublishing(comment.imageUrl, ContentType.IMAGE)
+          if (!validation.valid) {
+            return NextResponse.json(
+              {
+                data: null,
+                status: 400,
+                success: false,
+                message: `Comment ${i + 1} image URL: ${validation.error}. Use a publicly accessible URL or upload via the form.`,
+              } as unknown as ApiResponse<PublishResponse>,
+              { status: 400 }
+            )
+          }
+        }
+
+        if (comment.videoUrl) {
+          const validation = validateMediaUrlForPublishing(comment.videoUrl, ContentType.VIDEO)
+          if (!validation.valid) {
+            return NextResponse.json(
+              {
+                data: null,
+                status: 400,
+                success: false,
+                message: `Comment ${i + 1} video URL: ${validation.error}. Use a publicly accessible URL or upload via the form.`,
+              } as unknown as ApiResponse<PublishResponse>,
+              { status: 400 }
+            )
+          }
         }
       }
     }
@@ -291,6 +374,7 @@ async function publishToThreads(request: Request, user: User) {
                 altText: item.altText,
               })),
               ...builtThreadsOptions,
+              internalUserId: user.id,
             }
           )
           break
@@ -307,6 +391,7 @@ async function publishToThreads(request: Request, user: User) {
               imageUrl,
               altText,
               ...builtThreadsOptions,
+              internalUserId: user.id,
             }
           )
           break
@@ -323,6 +408,7 @@ async function publishToThreads(request: Request, user: User) {
               videoUrl,
               altText,
               ...builtThreadsOptions,
+              internalUserId: user.id,
             }
           )
           break
@@ -372,6 +458,81 @@ async function publishToThreads(request: Request, user: User) {
       })
       await postPublicationRepository.save(publication)
       publicationId = publication.id
+
+      // Create scheduled comments if provided
+      if (scheduledComments && scheduledComments.length > 0) {
+        try {
+          await dataSource.transaction(async (transactionalEntityManager) => {
+            for (const comment of scheduledComments) {
+              // For immediate publish: use current time as base
+              const commentScheduledAt = new Date(Date.now() + comment.delayMinutes * 60 * 1000)
+
+              // Determine content type for comment
+              let commentContentType = ContentType.TEXT
+              if (comment.imageUrl) {
+                commentContentType = ContentType.IMAGE
+              } else if (comment.videoUrl) {
+                commentContentType = ContentType.VIDEO
+              }
+
+              const childPost = postRepository.create({
+                userId: user.id,
+                parentPostId: post.id,
+                content: comment.content?.trim() || '',
+                status: PostStatus.SCHEDULED,
+                contentType: commentContentType,
+                isScheduled: true,
+                scheduledAt: commentScheduledAt,
+                socialAccountId: channelId,
+                commentDelayMinutes: comment.delayMinutes,
+                metadata: {
+                  threads: {
+                    replyToId: platformPostId,
+                  },
+                },
+              })
+              await transactionalEntityManager.save(childPost)
+
+              // Create media record if comment has media
+              if (comment.imageUrl || comment.videoUrl) {
+                const media = mediaRepository.create({
+                  postId: childPost.id,
+                  type: commentContentType === ContentType.IMAGE ? MediaType.IMAGE : MediaType.VIDEO,
+                  url: comment.imageUrl || comment.videoUrl || '',
+                  altText: comment.altText || undefined,
+                  mimeType: commentContentType === ContentType.IMAGE ? 'image/jpeg' : 'video/mp4',
+                  order: 0,
+                })
+                await transactionalEntityManager.save(media)
+              }
+
+              console.log(`Created scheduled comment ${childPost.id} for post ${post.id} with delay ${comment.delayMinutes} minutes`)
+            }
+          })
+        } catch (transactionError) {
+          console.error('Failed to create scheduled comments:', transactionError)
+          // Don't fail the main post publish, just log the error
+        }
+      }
+
+      // Update existing child comments with parent's platform_post_id for reply
+      const childComments = await postRepository.find({
+        where: { parentPostId: post.id },
+      })
+
+      for (const child of childComments) {
+        const currentMetadata = (child.metadata as { threads?: Record<string, unknown> }) || {}
+        await postRepository.update(child.id, {
+          metadata: {
+            ...currentMetadata,
+            threads: {
+              ...(currentMetadata.threads || {}),
+              replyToId: platformPostId,
+            },
+          },
+        })
+        console.log(`Updated child comment ${child.id} with replyToId: ${platformPostId}`)
+      }
 
       // Link uploaded media to post for reference
       const uploadedMediaRepository = dataSource.getRepository(UploadedMedia)

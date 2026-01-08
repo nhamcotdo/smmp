@@ -17,6 +17,22 @@ import type {
   ThreadsReplyControl,
 } from '@/lib/types/threads'
 import { ThreadsMediaType } from '@/lib/types/threads'
+import { needsProxy, proxyMediaToR2 } from './media-proxy.service'
+import { THREADS_POLLING, CAROUSEL } from '@/lib/constants'
+
+/**
+ * Prepare media URL for Threads API
+ * Proxies URL if needed (Douyin, TikTok, etc.)
+ */
+async function prepareMediaUrl(internalUserId: string, url: string): Promise<string> {
+  if (needsProxy(url)) {
+    console.log(`[MediaProxy] Proxying URL: ${url}`)
+    const result = await proxyMediaToR2(internalUserId, url)
+    console.log(`[MediaProxy] Proxied to: ${result.url}`)
+    return result.url
+  }
+  return url
+}
 
 /**
  * Poll container status until it's ready or failed
@@ -32,9 +48,9 @@ async function waitForContainerReady(
   } = {}
 ): Promise<void> {
   const {
-    maxWaitMs = 60000,
-    initialPollIntervalMs = 1000,
-    maxPollIntervalMs = 5000,
+    maxWaitMs = THREADS_POLLING.DEFAULT_MAX_WAIT_MS,
+    initialPollIntervalMs = THREADS_POLLING.INITIAL_POLL_INTERVAL_MS,
+    maxPollIntervalMs = THREADS_POLLING.MAX_POLL_INTERVAL_MS,
   } = options
 
   const startTime = Date.now()
@@ -107,6 +123,7 @@ export interface PublishTextPostParams {
   textAttachment?: TextAttachment
   gifAttachment?: GifAttachment
   isGhostPost?: boolean
+  internalUserId?: string // For proxying media URLs
 }
 
 export interface PublishImagePostParams {
@@ -115,6 +132,7 @@ export interface PublishImagePostParams {
   altText?: string
   replyControl?: ThreadsReplyControl
   replyToId?: string
+  internalUserId: string // Required for proxying media URLs from protected sources
 }
 
 export interface PublishVideoPostParams {
@@ -123,6 +141,7 @@ export interface PublishVideoPostParams {
   altText?: string
   replyControl?: ThreadsReplyControl
   replyToId?: string
+  internalUserId: string // Required for proxying media URLs from protected sources
 }
 
 export interface CarouselMediaItem {
@@ -141,6 +160,7 @@ export interface PublishCarouselPostParams {
   locationId?: string
   autoPublishText?: boolean
   isGhostPost?: boolean
+  internalUserId: string // Required for proxying media URLs from protected sources
 }
 
 /**
@@ -168,7 +188,7 @@ export async function publishTextPost(
   }
 
   return publishWithContainer(accessToken, userId, containerParams, {
-    maxWaitMs: 30000,
+    maxWaitMs: THREADS_POLLING.TEXT_POST_MAX_WAIT_MS,
     containerType: 'Text',
   })
 }
@@ -181,9 +201,12 @@ export async function publishImagePost(
   userId: string,
   params: PublishImagePostParams
 ): Promise<string> {
+  // Proxy URL if needed (Douyin, TikTok, etc.)
+  const proxiedImageUrl = await prepareMediaUrl(params.internalUserId, params.imageUrl)
+
   const containerParams: CreateContainerParams = {
     text: params.text || '',
-    image_url: params.imageUrl,
+    image_url: proxiedImageUrl,
     media_type: ThreadsMediaType.IMAGE,
     ...(params.altText && { alt_text: params.altText }),
     ...(params.replyControl && { reply_control: params.replyControl }),
@@ -191,7 +214,7 @@ export async function publishImagePost(
   }
 
   return publishWithContainer(accessToken, userId, containerParams, {
-    maxWaitMs: 30000,
+    maxWaitMs: THREADS_POLLING.IMAGE_POST_MAX_WAIT_MS,
     containerType: 'Image',
   })
 }
@@ -204,9 +227,12 @@ export async function publishVideoPost(
   userId: string,
   params: PublishVideoPostParams
 ): Promise<string> {
+  // Proxy URL if needed (Douyin, TikTok, etc.)
+  const proxiedVideoUrl = await prepareMediaUrl(params.internalUserId, params.videoUrl)
+
   const containerParams: CreateContainerParams = {
     text: params.text || '',
-    video_url: params.videoUrl,
+    video_url: proxiedVideoUrl,
     media_type: ThreadsMediaType.VIDEO,
     ...(params.altText && { alt_text: params.altText }),
     ...(params.replyControl && { reply_control: params.replyControl }),
@@ -214,7 +240,7 @@ export async function publishVideoPost(
   }
 
   return publishWithContainer(accessToken, userId, containerParams, {
-    maxWaitMs: 60000,
+    maxWaitMs: THREADS_POLLING.VIDEO_POST_MAX_WAIT_MS,
     containerType: 'Video',
   })
 }
@@ -230,23 +256,27 @@ export async function publishCarouselPost(
 ): Promise<string> {
   const { mediaItems } = params
 
-  if (mediaItems.length < 2) {
-    throw new Error('Carousel must have at least 2 media items')
+  if (mediaItems.length < CAROUSEL.MIN_ITEMS) {
+    throw new Error(`Carousel must have at least ${CAROUSEL.MIN_ITEMS} media items`)
   }
-  if (mediaItems.length > 20) {
-    throw new Error('Carousel cannot have more than 20 media items')
+  if (mediaItems.length > CAROUSEL.MAX_ITEMS) {
+    throw new Error(`Carousel cannot have more than ${CAROUSEL.MAX_ITEMS} media items`)
   }
 
-  // Step 1: Create item containers for each media
+  // Step 1: Proxy URLs if needed, then create item containers for each media
   const childContainerIds: string[] = []
   for (let i = 0; i < mediaItems.length; i++) {
     const item = mediaItems[i]
+
+    // Proxy URL if needed (Douyin, TikTok, etc.)
+    const proxiedUrl = await prepareMediaUrl(params.internalUserId, item.url)
+
     const itemParams: CreateContainerParams = {
       media_type: item.type === 'image' ? ThreadsMediaType.IMAGE : ThreadsMediaType.VIDEO,
       is_carousel_item: true,
       ...(item.type === 'image'
-        ? { image_url: item.url }
-        : { video_url: item.url }
+        ? { image_url: proxiedUrl }
+        : { video_url: proxiedUrl }
       ),
       ...(item.altText && { alt_text: item.altText }),
     }
@@ -255,7 +285,7 @@ export async function publishCarouselPost(
     console.log(`[Carousel] Created item container ${i + 1}/${mediaItems.length}: ${itemContainer.id}`)
 
     // Wait for child container to be ready before creating next item
-    const itemMaxWaitMs = item.type === 'video' ? 60000 : 30000
+    const itemMaxWaitMs = item.type === 'video' ? THREADS_POLLING.VIDEO_POST_MAX_WAIT_MS : THREADS_POLLING.IMAGE_POST_MAX_WAIT_MS
     await waitForContainerReady(accessToken, itemContainer.id, {
       maxWaitMs: itemMaxWaitMs,
     })
@@ -284,10 +314,10 @@ export async function publishCarouselPost(
   // Wait for carousel container to be ready using status polling
   // Carousels with videos may take longer due to R2 URL fetching
   const hasVideoItems = mediaItems.some((item) => item.type === 'video')
-  const maxWaitMs = hasVideoItems ? 60000 : 30000
-  console.log(`[Carousel] Waiting for carousel container to be ready (max ${maxWaitMs}ms, has videos: ${hasVideoItems})`)
+  const carouselMaxWaitMs = hasVideoItems ? THREADS_POLLING.VIDEO_POST_MAX_WAIT_MS : THREADS_POLLING.IMAGE_POST_MAX_WAIT_MS
+  console.log(`[Carousel] Waiting for carousel container to be ready (max ${carouselMaxWaitMs}ms, has videos: ${hasVideoItems})`)
   await waitForContainerReady(accessToken, carouselContainer.id, {
-    maxWaitMs,
+    maxWaitMs: carouselMaxWaitMs,
   })
 
   // Step 3: Publish the carousel container

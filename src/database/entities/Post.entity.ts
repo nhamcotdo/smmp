@@ -22,6 +22,8 @@ import { PostStatus, ContentType } from './enums'
 @Index('idx_posts_content_type', ['contentType'])
 @Index('idx_posts_user_status', ['userId', 'status'])
 @Index('idx_posts_scheduled_status', ['status', 'scheduledAt'])
+@Index('idx_posts_parent_post_id', ['parentPostId'])
+@Index('idx_posts_parent_status_scheduled', ['parentPostId', 'status', 'scheduledAt'])
 export class Post extends BaseEntity {
   @Column({
     type: 'uuid',
@@ -170,6 +172,33 @@ export class Post extends BaseEntity {
     name: 'last_retry_at',
   })
   lastRetryAt!: Date
+
+  @Column({
+    type: 'uuid',
+    nullable: true,
+    name: 'parent_post_id',
+  })
+  parentPostId!: string | null
+
+  @ManyToOne('Post', 'childPosts', {
+    onDelete: 'CASCADE',
+    nullable: true,
+  })
+  @JoinColumn({ name: 'parent_post_id' })
+  parentPost!: Post | null
+
+  @OneToMany('Post', 'parentPost', {
+    cascade: true,
+    onDelete: 'CASCADE',
+  })
+  childPosts!: Post[]
+
+  @Column({
+    type: 'integer',
+    nullable: true,
+    name: 'comment_delay_minutes',
+  })
+  commentDelayMinutes!: number | null
 
   @OneToMany('PostPublication', 'post', {
     cascade: true,

@@ -6,7 +6,7 @@ import { Analytics } from '@/database/entities/Analytics.entity'
 import { SocialAccount } from '@/database/entities/SocialAccount.entity'
 import { User } from '@/database/entities/User.entity'
 import { withAuth } from '@/lib/auth/middleware'
-import { PostStatus, Platform } from '@/database/entities/enums'
+import { PostStatus } from '@/database/entities/enums'
 import {
   getOrBuildThreadsPostUrl,
 } from '@/lib/services/threads.service'
@@ -181,7 +181,7 @@ async function getPostsAnalytics(request: NextRequest, user: User) {
     for (const post of posts) {
       const publicationsWithAnalytics = await Promise.all(
         post.publications.map(async (pub) => {
-          const socialAccount = (pub as any).socialAccount
+          const socialAccount = pub.socialAccount
 
           // Get or fetch permalink (auto-saves to DB if missing)
           const platformPostUrl = socialAccount
@@ -235,11 +235,15 @@ type AnalyticsResponse = AnalyticsOverview | PostAnalytics[]
 /**
  * Helper to get or fetch permalink for a publication
  * Fetches from API if not in database and saves it
+ * @param pub - The post publication entity
+ * @param socialAccount - The social account with access token
+ * @param postPublicationRepository - The repository for saving updates
+ * @returns The platform post URL
  */
 async function getOrFetchPermalink(
   pub: PostPublication,
-  socialAccount: any,
-  postPublicationRepository: any
+  socialAccount: SocialAccount,
+  postPublicationRepository: import('typeorm').Repository<PostPublication>
 ): Promise<string> {
   let platformPostUrl = pub.platformPostUrl?.trim()
   if (!platformPostUrl && socialAccount && pub.platformPostId) {

@@ -17,7 +17,6 @@ import {
   publishVideoPost,
   publishCarouselPost,
 } from '@/lib/services/threads-publisher.service'
-import { ThreadsReplyControl } from '@/lib/types/threads'
 import type {
   PollAttachment,
   TextEntity,
@@ -28,9 +27,10 @@ import type {
 import {
   getOrBuildThreadsPostUrl,
 } from '@/lib/services/threads.service'
-import { LessThan } from 'typeorm'
+import { LessThan, Not, IsNull } from 'typeorm'
 import { ContentType } from '@/database/entities/enums'
 import { validateMediaUrl, getOwnHostname } from '@/lib/utils/content-parser'
+import { VALID_REPLY_CONTROLS } from '@/lib/constants'
 
 interface PublishResult {
   postId: string
@@ -73,6 +73,7 @@ export async function publishScheduledPosts(): Promise<PublishResult[]> {
   console.log(`Found ${duePosts.length} scheduled posts due for publishing`)
 
   const results: PublishResult[] = []
+  const ownHostname = getOwnHostname()
 
   for (const post of duePosts) {
     try {
@@ -110,9 +111,6 @@ export async function publishScheduledPosts(): Promise<PublishResult[]> {
       // Get first media item if exists
       const mediaItem = post.media?.[0]
 
-      // Get own hostname for validation (allows uploads from /api/upload to work in production)
-      const ownHostname = getOwnHostname()
-
       // Validate media URLs before attempting to publish
       if (post.contentType === ContentType.IMAGE && mediaItem?.url) {
         const validation = validateMediaUrl(mediaItem.url, {
@@ -148,6 +146,7 @@ export async function publishScheduledPosts(): Promise<PublishResult[]> {
               text: post.content || undefined,
               imageUrl: mediaItem.url,
               altText: mediaItem.altText || undefined,
+              internalUserId: post.userId,
             }
           )
           break
@@ -164,6 +163,7 @@ export async function publishScheduledPosts(): Promise<PublishResult[]> {
               text: post.content || undefined,
               videoUrl: mediaItem.url,
               altText: mediaItem.altText || undefined,
+              internalUserId: post.userId,
             }
           )
           break
@@ -197,8 +197,10 @@ export async function publishScheduledPosts(): Promise<PublishResult[]> {
             locationId?: string
             autoPublishText?: boolean
             isGhostPost?: boolean
+            internalUserId: string
           } = {
             text: post.content || undefined,
+            internalUserId: post.userId,
             mediaItems: post.media.map((item) => ({
               type: item.type === MediaType.IMAGE ? 'image' : 'video',
               url: item.url,
@@ -215,8 +217,7 @@ export async function publishScheduledPosts(): Promise<PublishResult[]> {
             }
             if (typeof threadsOptions.replyControl === 'string') {
               // Validate reply control value before casting
-              const validReplyControls = new Set(['EVERYONE', 'ACCOUNTS_YOU_FOLLOW', 'MENTIONED_ONLY', 'PARENT_POST_AUTHOR_ONLY', 'FOLLOWERS_ONLY'])
-              if (validReplyControls.has(threadsOptions.replyControl)) {
+              if (VALID_REPLY_CONTROLS.has(threadsOptions.replyControl)) {
                 carouselPostParams.replyControl = threadsOptions.replyControl as ThreadsReplyControl
               } else {
                 console.warn(`[Post ${post.id}] Invalid replyControl in metadata: "${threadsOptions.replyControl}". Skipping.`)
@@ -274,8 +275,7 @@ export async function publishScheduledPosts(): Promise<PublishResult[]> {
             }
             if (typeof threadsOptions.replyControl === 'string') {
               // Validate reply control value before casting
-              const validReplyControls = new Set(['EVERYONE', 'ACCOUNTS_YOU_FOLLOW', 'MENTIONED_ONLY', 'PARENT_POST_AUTHOR_ONLY', 'FOLLOWERS_ONLY'])
-              if (validReplyControls.has(threadsOptions.replyControl)) {
+              if (VALID_REPLY_CONTROLS.has(threadsOptions.replyControl)) {
                 textPostParams.replyControl = threadsOptions.replyControl as ThreadsReplyControl
               } else {
                 console.warn(`[Post ${post.id}] Invalid replyControl in metadata: "${threadsOptions.replyControl}". Skipping.`)
@@ -337,6 +337,25 @@ export async function publishScheduledPosts(): Promise<PublishResult[]> {
         publishedAt: new Date(),
       })
 
+      // Update child comments with parent's platform_post_id for reply
+      const childComments = await postRepository.find({
+        where: { parentPostId: post.id },
+      })
+
+      for (const child of childComments) {
+        const currentMetadata = (child.metadata as { threads?: Record<string, unknown> }) || {}
+        await postRepository.update(child.id, {
+          metadata: {
+            ...currentMetadata,
+            threads: {
+              ...(currentMetadata.threads || {}),
+              replyToId: platformPostId,
+            },
+          },
+        })
+        console.log(`Updated child comment ${child.id} with replyToId: ${platformPostId}`)
+      }
+
       results.push({
         postId: post.id,
         success: true,
@@ -367,6 +386,210 @@ export async function publishScheduledPosts(): Promise<PublishResult[]> {
     }
   }
 
+  // Process due child comments (scheduled replies to published posts)
+  const dueChildComments = await postRepository.find({
+    where: {
+      status: PostStatus.SCHEDULED,
+      isScheduled: true,
+      scheduledAt: LessThan(now),
+      parentPostId: Not(IsNull()),
+    },
+    relations: ['parentPost', 'parentPost.publications', 'socialAccount', 'media'],
+    order: {
+      scheduledAt: 'ASC',
+    },
+  })
+
+  if (dueChildComments.length > 0) {
+    console.log(`Processing ${dueChildComments.length} scheduled child comments...`)
+  }
+
+  for (const childComment of dueChildComments) {
+    try {
+      // Verify parent exists and is published
+      if (!childComment.parentPost) {
+        console.warn(`Child comment ${childComment.id} has no parent post, skipping`)
+        continue
+      }
+
+      const parentPublication = childComment.parentPost.publications?.[0]
+      if (!parentPublication?.platformPostId) {
+        console.warn(`Parent post has no platform ID for child comment ${childComment.id}, skipping`)
+        continue
+      }
+
+      if (childComment.parentPost.status !== PostStatus.PUBLISHED) {
+        console.warn(`Parent post not published (status: ${childComment.parentPost.status}) for child comment ${childComment.id}, skipping`)
+        continue
+      }
+
+      // Validate comment content is not empty
+      if (!childComment.content?.trim()) {
+        console.warn(`Child comment ${childComment.id} has empty content, marking as failed`)
+        await postRepository.update(childComment.id, {
+          status: PostStatus.FAILED,
+          failedAt: new Date(),
+          errorMessage: 'Comment content is empty',
+          retryCount: childComment.retryCount + 1,
+          lastRetryAt: new Date(),
+        })
+        continue
+      }
+
+      // Mark as publishing
+      await postRepository.update(childComment.id, {
+        status: PostStatus.PUBLISHING,
+      })
+
+      // Use stored social account or fallback to parent's account
+      let socialAccount = childComment.socialAccount
+      if (!socialAccount) {
+        const socialAccounts = await socialAccountRepository.find({
+          where: {
+            userId: childComment.userId,
+            platform: Platform.THREADS,
+            status: AccountStatus.ACTIVE,
+          },
+        })
+
+        if (socialAccounts.length === 0) {
+          throw new Error('No active Threads account found')
+        }
+
+        socialAccount = socialAccounts[0]
+      }
+
+      // Get first media item if exists
+      const mediaItem = childComment.media?.[0]
+
+      // Publish comment as reply based on content type
+      const commentMetadata = (childComment.metadata as { threads?: Record<string, unknown> })?.threads || {}
+
+      let platformPostId: string
+
+      if (childComment.contentType === ContentType.IMAGE && mediaItem?.url) {
+        // Validate image URL
+        const validation = validateMediaUrl(mediaItem.url, {
+          allowOwnHost: true,
+          ownHostname,
+        })
+        if (!validation.valid) {
+          throw new Error(`Invalid image URL: ${validation.error}`)
+        }
+
+        platformPostId = await publishImagePost(
+          socialAccount.accessToken,
+          socialAccount.platformUserId,
+          {
+            text: childComment.content || undefined,
+            imageUrl: mediaItem.url,
+            altText: mediaItem.altText || undefined,
+            replyToId: parentPublication.platformPostId,
+            internalUserId: childComment.userId,
+          }
+        )
+      } else if (childComment.contentType === ContentType.VIDEO && mediaItem?.url) {
+        // Validate video URL
+        const validation = validateMediaUrl(mediaItem.url, {
+          allowOwnHost: true,
+          ownHostname,
+        })
+        if (!validation.valid) {
+          throw new Error(`Invalid video URL: ${validation.error}`)
+        }
+
+        platformPostId = await publishVideoPost(
+          socialAccount.accessToken,
+          socialAccount.platformUserId,
+          {
+            text: childComment.content || undefined,
+            videoUrl: mediaItem.url,
+            altText: mediaItem.altText || undefined,
+            replyToId: parentPublication.platformPostId,
+            internalUserId: childComment.userId,
+          }
+        )
+      } else {
+        // Text comment
+        const commentParams: {
+          text: string
+          replyToId: string
+          linkAttachment?: string
+          topicTag?: string
+        } = {
+          text: childComment.content,
+          replyToId: parentPublication.platformPostId,
+        }
+
+        if (typeof commentMetadata.linkAttachment === 'string') {
+          commentParams.linkAttachment = commentMetadata.linkAttachment
+        }
+        if (typeof commentMetadata.topicTag === 'string') {
+          commentParams.topicTag = commentMetadata.topicTag
+        }
+
+        platformPostId = await publishTextPost(
+          socialAccount.accessToken,
+          socialAccount.platformUserId,
+          commentParams
+        )
+      }
+
+      // Get post URL
+      const platformPostUrl = await getOrBuildThreadsPostUrl(
+        socialAccount.accessToken,
+        platformPostId,
+        socialAccount.username
+      )
+
+      // Create publication record for the comment
+      const commentPublication = postPublicationRepository.create({
+        postId: childComment.id,
+        socialAccountId: socialAccount.id,
+        platform: Platform.THREADS,
+        status: PostStatus.PUBLISHED,
+        platformPostId,
+        platformPostUrl,
+        publishedAt: new Date(),
+      })
+      await postPublicationRepository.save(commentPublication)
+
+      // Update comment as published
+      await postRepository.update(childComment.id, {
+        status: PostStatus.PUBLISHED,
+        publishedAt: new Date(),
+      })
+
+      results.push({
+        postId: childComment.id,
+        success: true,
+        platformPostId,
+        platformUrl: platformPostUrl,
+      })
+
+      console.log(`✅ Published child comment ${childComment.id} as reply to ${parentPublication.platformPostId}`)
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+
+      // Mark as failed
+      await postRepository.update(childComment.id, {
+        status: PostStatus.FAILED,
+        failedAt: new Date(),
+        errorMessage,
+        retryCount: childComment.retryCount + 1,
+        lastRetryAt: new Date(),
+      })
+
+      results.push({
+        postId: childComment.id,
+        success: false,
+        error: errorMessage,
+      })
+
+      console.error(`❌ Failed to publish child comment ${childComment.id}:`, errorMessage)
+    }
+  }
+
   const successCount = results.filter((r) => r.success).length
   const failureCount = results.filter((r) => !r.success).length
 
@@ -378,13 +601,15 @@ export async function publishScheduledPosts(): Promise<PublishResult[]> {
 /**
  * Check for posts that should have been published but weren't
  * (e.g., due to server downtime)
+ * @returns Array of missed scheduled posts
  */
 export async function findMissedScheduledPosts(): Promise<Post[]> {
   const dataSource = await getConnection()
   const postRepository = dataSource.getRepository(Post)
 
   const now = new Date()
-  const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000)
+  const FIVE_MINUTES_MS = 5 * 60 * 1000 // Local constant for this function
+  const fiveMinutesAgo = new Date(now.getTime() - FIVE_MINUTES_MS)
 
   const missedPosts = await postRepository.find({
     where: {

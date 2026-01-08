@@ -7,6 +7,14 @@ import { PostStatus, ContentType } from '@/database/entities/enums'
 import type { ApiResponse } from '@/lib/types'
 import { utcPlus7ToUtc } from '@/lib/utils/timezone'
 
+interface ChildCommentDTO {
+  id: string
+  content: string
+  status: PostStatus
+  scheduledAt: Date | null
+  commentDelayMinutes: number | null
+}
+
 interface PostDetail {
   id: string
   content: string
@@ -19,6 +27,9 @@ interface PostDetail {
   isScheduled: boolean
   errorMessage: string | null
   retryCount: number
+  parentPostId?: string | null
+  commentDelayMinutes?: number | null
+  childComments?: ChildCommentDTO[]
   publications?: {
     id: string
     platform: string
@@ -54,7 +65,7 @@ async function getPost(
 
     const post = await postRepository.findOne({
       where: { id: postId, userId: user.id },
-      relations: ['publications'],
+      relations: ['publications', 'childPosts'],
     })
 
     if (!post) {
@@ -81,6 +92,15 @@ async function getPost(
       isScheduled: post.isScheduled,
       errorMessage: post.errorMessage ?? null,
       retryCount: post.retryCount,
+      parentPostId: post.parentPostId ?? null,
+      commentDelayMinutes: post.commentDelayMinutes ?? null,
+      childComments: post.childPosts?.map(child => ({
+        id: child.id,
+        content: child.content,
+        status: child.status,
+        scheduledAt: child.scheduledAt ?? null,
+        commentDelayMinutes: child.commentDelayMinutes,
+      })) ?? [],
       publications: post.publications?.map((pub) => ({
         id: pub.id,
         platform: pub.platform,
@@ -200,7 +220,7 @@ async function updatePost(
 
     const updatedPost = await postRepository.findOne({
       where: { id: postId },
-      relations: ['publications'],
+      relations: ['publications', 'childPosts'],
     })
 
     const response: PostDetail = {
@@ -215,6 +235,15 @@ async function updatePost(
       isScheduled: updatedPost!.isScheduled,
       errorMessage: updatedPost!.errorMessage ?? null,
       retryCount: updatedPost!.retryCount,
+      parentPostId: updatedPost!.parentPostId ?? null,
+      commentDelayMinutes: updatedPost!.commentDelayMinutes ?? null,
+      childComments: updatedPost!.childPosts?.map(child => ({
+        id: child.id,
+        content: child.content,
+        status: child.status,
+        scheduledAt: child.scheduledAt ?? null,
+        commentDelayMinutes: child.commentDelayMinutes,
+      })) ?? [],
       publications: updatedPost!.publications?.map((pub) => ({
         id: pub.id,
         platform: pub.platform,

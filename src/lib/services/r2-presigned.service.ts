@@ -77,7 +77,8 @@ function getStringToSign(
   payloadHash: string = 'UNSIGNED-PAYLOAD'
 ): string {
   const algorithm = 'AWS4-HMAC-SHA256'
-  const credentialScope = `${timestamp.substr(0, 8)}/${region}/${service}/aws4_request`
+  const dateStamp = timestamp.slice(0, 8)
+  const credentialScope = `${dateStamp}/${region}/${service}/aws4_request`
 
   // Build the canonical request
   const canonicalRequest = [
@@ -117,14 +118,16 @@ function calculateSignature(
 }
 
 /**
- * Generate a presigned URL for R2 upload
+ * Generate a presigned URL for R2 upload or download
  * @param key - Storage key (path/filename)
  * @param expiresIn - Expiration time in seconds (default: 3600 = 1 hour)
- * @returns Presigned URL for direct upload
+ * @param method - HTTP method (default: 'PUT' for uploads, use 'GET' for downloads)
+ * @returns Presigned URL
  */
 export async function generatePresignedUrl(
   key: string,
-  expiresIn: number = 3600
+  expiresIn: number = 3600,
+  method: 'PUT' | 'GET' = 'PUT'
 ): Promise<PresignedUrlResult> {
   const creds = getR2Credentials()
   if (!creds) {
@@ -133,19 +136,18 @@ export async function generatePresignedUrl(
 
   const { accountId, accessKeyId, secretAccessKey, bucketName } = creds
 
-  const method = 'PUT'
   const region = 'auto'
   const service = 's3'
   const host = `${accountId}.r2.cloudflarestorage.com`
 
   const now = new Date()
   const amzDate = now.toISOString().replace(/[:\-]|\.\d{3}/g, '') // YYYYMMDDThhmmssZ
-  const dateStamp = amzDate.substr(0, 8)
+  const dateStamp = amzDate.slice(0, 8)
 
   // Canonical URI
   const canonicalUri = `/${bucketName}/${key}`
 
-  // Canonical query string
+  // Canonical query string (without signature)
   const expiration = Math.floor(now.getTime() / 1000) + expiresIn
   const canonicalQuerystring = `X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=${encodeURIComponent(`${accessKeyId}/${dateStamp}/${region}/${service}/aws4_request`)}&X-Amz-Date=${amzDate}&X-Amz-Expires=${expiresIn}&X-Amz-SignedHeaders=host`
 
@@ -176,7 +178,7 @@ export async function generatePresignedUrl(
     stringToSign
   )
 
-  // Build presigned URL
+  // Build presigned URL with signature
   const presignedUrl = `https://${host}${canonicalUri}?${canonicalQuerystring}&X-Amz-Signature=${signature}`
 
   return {
@@ -223,7 +225,7 @@ export async function deleteFromR2(key: string): Promise<boolean> {
 
   const now = new Date()
   const amzDate = now.toISOString().replace(/[:\-]|\.\d{3}/g, '')
-  const dateStamp = amzDate.substr(0, 8)
+  const dateStamp = amzDate.slice(0, 8)
 
   // Canonical URI
   const canonicalUri = `/${bucketName}/${key}`

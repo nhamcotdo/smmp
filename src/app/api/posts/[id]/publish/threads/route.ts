@@ -178,6 +178,7 @@ async function publishToThreads(
               text: post.content || undefined,
               imageUrl: mediaItem.url,
               altText: mediaItem.altText,
+              internalUserId: user.id,
             }
           )
           break
@@ -193,6 +194,7 @@ async function publishToThreads(
               text: post.content || undefined,
               videoUrl: mediaItem.url,
               altText: mediaItem.altText,
+              internalUserId: user.id,
             }
           )
           break

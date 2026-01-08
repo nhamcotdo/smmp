@@ -98,6 +98,95 @@ export default function CreatePostPage() {
   const [pollOptionC, setPollOptionC] = useState('')
   const [pollOptionD, setPollOptionD] = useState('')
 
+  // Scheduled comments
+  interface ScheduledComment {
+    id: string
+    content: string
+    delayMinutes: number
+    mediaFile?: File
+    mediaPreview?: string
+    mediaType?: 'image' | 'video'
+  }
+  const [scheduledComments, setScheduledComments] = useState<ScheduledComment[]>([])
+
+  const addScheduledComment = () => {
+    setScheduledComments(prev => [...prev, {
+      id: Math.random().toString(36).substring(7),
+      content: '',
+      delayMinutes: 0,
+    }])
+  }
+
+  const removeScheduledComment = (id: string) => {
+    setScheduledComments(prev => {
+      const comment = prev.find(c => c.id === id)
+      if (comment?.mediaPreview) {
+        URL.revokeObjectURL(comment.mediaPreview)
+      }
+      return prev.filter(c => c.id !== id)
+    })
+  }
+
+  const handleCommentMediaSelect = (commentId: string, e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    const isImage = file.type.startsWith('image/')
+    const isVideo = file.type.startsWith('video/')
+
+    if (!isImage && !isVideo) {
+      setError('Please select an image or video file')
+      return
+    }
+
+    const preview = URL.createObjectURL(file)
+
+    setScheduledComments(prev => prev.map(c => {
+      if (c.id === commentId) {
+        if (c.mediaPreview) {
+          URL.revokeObjectURL(c.mediaPreview)
+        }
+        return {
+          ...c,
+          mediaFile: file,
+          mediaPreview: preview,
+          mediaType: isImage ? 'image' : 'video',
+        }
+      }
+      return c
+    }))
+  }
+
+  const removeCommentMedia = (commentId: string) => {
+    setScheduledComments(prev => prev.map(c => {
+      if (c.id === commentId) {
+        if (c.mediaPreview) {
+          URL.revokeObjectURL(c.mediaPreview)
+        }
+        return {
+          ...c,
+          mediaFile: undefined,
+          mediaPreview: undefined,
+          mediaType: undefined,
+        }
+      }
+      return c
+    }))
+  }
+
+  const updateScheduledComment = (id: string, field: 'content' | 'delayMinutes', value: string | number) => {
+    if (field === 'delayMinutes') {
+      const numValue = typeof value === 'string' ? parseInt(value, 10) : value
+      if (isNaN(numValue) || numValue < 0) {
+        console.warn(`Invalid delayMinutes: ${value}, defaulting to 0`)
+        value = 0
+      }
+    }
+
+    setScheduledComments(prev => prev.map(c => c.id === id ? { ...c, [field]: value } : c))
+  }
+
+
   // Load channels on mount
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -504,6 +593,51 @@ export default function CreatePostPage() {
   }
 
   /**
+   * Upload scheduled comment media files and return final URLs
+   */
+  async function uploadScheduledCommentMedia(
+    comments: ScheduledComment[]
+  ): Promise<Array<{ content: string; delayMinutes: number; imageUrl?: string; videoUrl?: string }>> {
+    const finalComments: Array<{ content: string; delayMinutes: number; imageUrl?: string; videoUrl?: string }> = []
+
+    for (const comment of comments) {
+      let mediaUrl: string | undefined = undefined
+
+      if (comment.mediaFile) {
+        const formData = new FormData()
+        formData.append('file', comment.mediaFile)
+
+        const uploadResponse = await fetch('/api/upload/proxy', {
+          method: 'POST',
+          body: formData,
+        })
+
+        if (!uploadResponse.ok) {
+          const errorData = await uploadResponse.json()
+          throw new Error(`Failed to upload comment media: ${errorData.message || 'File upload failed'}`)
+        }
+
+        const uploadData = await uploadResponse.json()
+
+        if (!uploadData.success) {
+          throw new Error(`Failed to upload comment media: ${uploadData.message || 'File upload failed'}`)
+        }
+
+        mediaUrl = uploadData.data.url
+      }
+
+      finalComments.push({
+        content: comment.content.trim(),
+        delayMinutes: comment.delayMinutes,
+        ...(comment.mediaType === 'image' && mediaUrl ? { imageUrl: mediaUrl } : {}),
+        ...(comment.mediaType === 'video' && mediaUrl ? { videoUrl: mediaUrl } : {}),
+      })
+    }
+
+    return finalComments
+  }
+
+  /**
    * Build threads options from form state
    * Extracted to avoid duplication between publish now and schedule flows
    */
@@ -603,6 +737,11 @@ export default function CreatePostPage() {
         // Build threads options from form state
         const builtThreadsOptions = buildThreadsOptionsFromForm()
 
+        // Upload scheduled comment media files
+        const finalScheduledComments = scheduledComments.length > 0
+          ? await uploadScheduledCommentMedia(scheduledComments)
+          : []
+
         // Publish immediately
         if (contentType === 'carousel') {
           // Upload carousel files and prepare media items
@@ -611,6 +750,7 @@ export default function CreatePostPage() {
           const result = await createAndPublishToThreads(content, selectedChannel, {
             carouselMediaItems: finalCarouselMedia,
             threadsOptions: Object.keys(builtThreadsOptions).length > 0 ? builtThreadsOptions : undefined,
+            scheduledComments: finalScheduledComments.length > 0 ? finalScheduledComments : undefined,
           })
 
           setSuccessMessage(
@@ -623,6 +763,7 @@ export default function CreatePostPage() {
             videoUrl: mediaPreview?.type === 'video' ? finalMediaUrl : undefined,
             altText: altText || undefined,
             threadsOptions: Object.keys(builtThreadsOptions).length > 0 ? builtThreadsOptions : undefined,
+            scheduledComments: finalScheduledComments.length > 0 ? finalScheduledComments : undefined,
           })
           setSuccessMessage(
             `Post published successfully! View it at: ${result.platformUrl}`
@@ -650,6 +791,11 @@ export default function CreatePostPage() {
           finalCarouselMedia = await uploadCarouselMediaItems(carouselMediaItems)
         }
 
+        // Upload scheduled comment media files
+        const finalScheduledComments = scheduledComments.length > 0
+          ? await uploadScheduledCommentMedia(scheduledComments)
+          : []
+
         // Schedule post
         const response = await fetch('/api/posts', {
           method: 'POST',
@@ -663,6 +809,7 @@ export default function CreatePostPage() {
             altText: contentType !== 'carousel' ? (altText || undefined) : undefined,
             carouselMediaItems: finalCarouselMedia,
             ...(Object.keys(builtThreadsOptions).length > 0 && { threadsOptions: builtThreadsOptions }),
+            ...(finalScheduledComments.length > 0 && { scheduledComments: finalScheduledComments }),
           }),
         })
 
@@ -687,6 +834,7 @@ export default function CreatePostPage() {
         clearMedia()
         setCarouselMediaItems([])
         setContentType('single')
+        setScheduledComments([])
 
         // Redirect after 2 seconds
         setTimeout(() => {
@@ -1517,6 +1665,130 @@ export default function CreatePostPage() {
                   </div>
                 )}
               </div>
+
+              {/* Scheduled Comments Section - show for both publish modes */}
+              {true && (
+                <div className="border-t border-zinc-200 pt-6 dark:border-zinc-700">
+                  <div className="mb-4">
+                    <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                      Scheduled Comments
+                    </label>
+                    <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                      Add comments that will be automatically posted as replies after the main post is published.
+                    </p>
+                  </div>
+
+                  {/* Comments list */}
+                  {scheduledComments.map((comment, index) => (
+                    <div key={comment.id} className="mb-3 rounded-lg border border-zinc-200 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900">
+                      <div className="mb-3 flex gap-3">
+                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-100 text-sm font-medium text-blue-700 dark:bg-blue-900 dark:text-blue-300">
+                          {index + 1}
+                        </span>
+
+                        <div className="flex flex-1 gap-3">
+                          <textarea
+                            value={comment.content}
+                            onChange={(e) => updateScheduledComment(comment.id, 'content', e.target.value)}
+                            placeholder="Comment content..."
+                            rows={2}
+                            maxLength={500}
+                            className="flex-1 rounded-md border border-zinc-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                          />
+
+                          <select
+                            value={comment.delayMinutes}
+                            onChange={(e) => updateScheduledComment(comment.id, 'delayMinutes', parseInt(e.target.value, 10))}
+                            className="h-10 rounded-md border border-zinc-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                          >
+                            <option value="0">Immediately</option>
+                            <option value="1">After 1 minute</option>
+                            <option value="5">After 5 minutes</option>
+                            <option value="10">After 10 minutes</option>
+                            <option value="15">After 15 minutes</option>
+                            <option value="30">After 30 minutes</option>
+                            <option value="60">After 1 hour</option>
+                            <option value="120">After 2 hours</option>
+                            <option value="180">After 3 hours</option>
+                            <option value="360">After 6 hours</option>
+                            <option value="720">After 12 hours</option>
+                            <option value="1440">After 24 hours</option>
+                          </select>
+
+                          <button
+                            type="button"
+                            onClick={() => removeScheduledComment(comment.id)}
+                            className="h-10 rounded-md border border-red-300 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-900/20"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Media attachment for comment */}
+                      <div className="ml-11 flex items-center gap-3">
+                        {!comment.mediaPreview ? (
+                          <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-dashed border-zinc-300 px-3 py-2 text-sm text-zinc-600 hover:border-zinc-400 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:bg-zinc-900">
+                            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                            </svg>
+                            Add Media
+                            <input
+                              type="file"
+                              accept="image/*,video/*"
+                              className="hidden"
+                              onChange={(e) => handleCommentMediaSelect(comment.id, e)}
+                            />
+                          </label>
+                        ) : (
+                          <div className="flex items-center gap-3">
+                            {comment.mediaType === 'image' ? (
+                              <div className="relative h-16 w-16 overflow-hidden rounded-md border border-zinc-300 dark:border-zinc-700">
+                                <img src={comment.mediaPreview} alt="" className="h-full w-full object-cover" />
+                              </div>
+                            ) : (
+                              <div className="relative h-16 w-16 overflow-hidden rounded-md border border-zinc-300 dark:border-zinc-700">
+                                <video src={comment.mediaPreview} className="h-full w-full object-cover" />
+                                <div className="absolute inset-0 flex items-center justify-center bg-black/50">
+                                  <svg className="h-6 w-6 text-white" fill="currentColor" viewBox="0 0 24 24">
+                                    <path d="M8 5v14l11-7z" />
+                                  </svg>
+                                </div>
+                              </div>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => removeCommentMedia(comment.id)}
+                              className="rounded-md border border-red-300 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-900/20"
+                            >
+                              Remove Media
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+
+                  {scheduledComments.length < 10 && (
+                    <button
+                      type="button"
+                      onClick={addScheduledComment}
+                      className="mt-2 flex items-center gap-2 rounded-md border-2 border-dashed border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-600 hover:border-zinc-400 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:bg-zinc-800"
+                    >
+                      <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                      </svg>
+                      Add Scheduled Comment
+                    </button>
+                  )}
+
+                  {scheduledComments.length >= 10 && (
+                    <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
+                      Maximum 10 scheduled comments allowed.
+                    </p>
+                  )}
+                </div>
+              )}
 
               <div className="rounded-md bg-blue-50 p-4 dark:bg-blue-900/20">
                 <p className="text-sm text-blue-800 dark:text-blue-200">

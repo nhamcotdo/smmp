@@ -198,6 +198,10 @@ export async function createAndPublishToThreads(
       }
       isGhostPost?: boolean
     }
+    scheduledComments?: Array<{
+      content: string
+      delayMinutes: number
+    }>
   }
 ): Promise<{
   publicationId: string
@@ -218,6 +222,7 @@ export async function createAndPublishToThreads(
       ...(options?.altText && { altText: options.altText }),
       ...(options?.carouselMediaItems && { carouselMediaItems: options.carouselMediaItems }),
       ...(options?.threadsOptions && { threadsOptions: options.threadsOptions }),
+      ...(options?.scheduledComments && { scheduledComments: options.scheduledComments }),
     }),
   })
 

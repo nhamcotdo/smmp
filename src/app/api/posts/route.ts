@@ -14,6 +14,12 @@ import type {
   GifAttachment,
   ThreadsReplyControl,
 } from '@/lib/types/threads'
+import {
+  SCHEDULED_COMMENTS,
+  CAROUSEL,
+  PAGINATION,
+  TIMEZONE,
+} from '@/lib/constants'
 
 interface PostListItem {
   id: string
@@ -38,11 +44,28 @@ interface PostListItem {
     status: string
     platformPostId: string | null
   }>
+  parentPostId?: string | null
+  commentDelayMinutes?: number | null
+  childComments?: Array<{
+    id: string
+    content: string
+    status: PostStatus
+    scheduledAt: Date | null
+    commentDelayMinutes: number | null
+  }>
 }
 
 interface PostsResponse {
   posts: PostListItem[]
   total: number
+}
+
+interface ScheduledComment {
+  content: string
+  delayMinutes: number
+  imageUrl?: string
+  videoUrl?: string
+  altText?: string
 }
 
 interface CreatePostRequest {
@@ -71,6 +94,7 @@ interface CreatePostRequest {
     gifAttachment?: GifAttachment
     isGhostPost?: boolean
   }
+  scheduledComments?: ScheduledComment[]
 }
 
 /**
@@ -82,8 +106,8 @@ async function getPosts(request: Request, user: User) {
     const { searchParams } = new URL(request.url)
     const status = searchParams.get('status') as PostStatus | null
     const scheduled = searchParams.get('scheduled') === 'true'
-    const limit = parseInt(searchParams.get('limit') ?? '50', 10)
-    const offset = parseInt(searchParams.get('offset') ?? '0', 10)
+    const limit = parseInt(searchParams.get('limit') ?? String(PAGINATION.DEFAULT_LIMIT), 10)
+    const offset = parseInt(searchParams.get('offset') ?? String(PAGINATION.DEFAULT_OFFSET), 10)
 
     const dataSource = await getConnection()
     const postRepository = dataSource.getRepository(Post)
@@ -102,7 +126,7 @@ async function getPosts(request: Request, user: User) {
 
     const [posts, total] = await postRepository.findAndCount({
       where,
-      relations: ['publications', 'media'],
+      relations: ['publications', 'media', 'childPosts'],
       order: {
         createdAt: 'DESC',
       },
@@ -134,6 +158,15 @@ async function getPosts(request: Request, user: User) {
           status: pub.status,
           platformPostId: pub.platformPostId,
         })),
+        parentPostId: post.parentPostId ?? null,
+        commentDelayMinutes: post.commentDelayMinutes ?? null,
+        childComments: post.childPosts?.map(child => ({
+          id: child.id,
+          content: child.content,
+          status: child.status,
+          scheduledAt: child.scheduledAt ?? null,
+          commentDelayMinutes: child.commentDelayMinutes,
+        })) ?? [],
       })),
       total,
     }
@@ -164,7 +197,7 @@ async function getPosts(request: Request, user: User) {
 async function createPost(request: Request, user: User) {
   try {
     const body = await request.json() as CreatePostRequest
-    const { content, contentType, imageUrl, videoUrl, altText, scheduledFor, socialAccountId, carouselMediaItems, threadsOptions } = body
+    const { content, contentType, imageUrl, videoUrl, altText, scheduledFor, socialAccountId, carouselMediaItems, threadsOptions, scheduledComments } = body
 
     if (!content?.trim() && !imageUrl && !videoUrl && !carouselMediaItems) {
       return NextResponse.json(
@@ -213,25 +246,25 @@ async function createPost(request: Request, user: User) {
       )
     }
 
-    if (finalContentType === ContentType.CAROUSEL && (!carouselMediaItems || carouselMediaItems.length < 2)) {
+    if (finalContentType === ContentType.CAROUSEL && (!carouselMediaItems || carouselMediaItems.length < CAROUSEL.MIN_ITEMS)) {
       return NextResponse.json(
         {
           data: null,
           status: 400,
           success: false,
-          message: 'Carousel must have at least 2 media items',
+          message: `Carousel must have at least ${CAROUSEL.MIN_ITEMS} media items`,
         } as unknown as ApiResponse<PostListItem>,
         { status: 400 }
       )
     }
 
-    if (finalContentType === ContentType.CAROUSEL && carouselMediaItems && carouselMediaItems.length > 20) {
+    if (finalContentType === ContentType.CAROUSEL && carouselMediaItems && carouselMediaItems.length > CAROUSEL.MAX_ITEMS) {
       return NextResponse.json(
         {
           data: null,
           status: 400,
           success: false,
-          message: 'Carousel cannot have more than 20 media items',
+          message: `Carousel cannot have more than ${CAROUSEL.MAX_ITEMS} media items`,
         } as unknown as ApiResponse<PostListItem>,
         { status: 400 }
       )
@@ -325,18 +358,98 @@ async function createPost(request: Request, user: User) {
       }
     }
 
+    // Validate scheduled comments
+    if (scheduledComments && scheduledComments.length > 0) {
+      if (scheduledComments.length > SCHEDULED_COMMENTS.MAX_ALLOWED) {
+        return NextResponse.json(
+          {
+            data: null,
+            status: 400,
+            success: false,
+            message: `Maximum ${SCHEDULED_COMMENTS.MAX_ALLOWED} scheduled comments allowed per post`,
+          } as unknown as ApiResponse<PostListItem>,
+          { status: 400 }
+        )
+      }
+
+      for (let i = 0; i < scheduledComments.length; i++) {
+        const comment = scheduledComments[i]
+
+        if (!comment.content?.trim() && !comment.imageUrl && !comment.videoUrl) {
+          return NextResponse.json(
+            {
+              data: null,
+              status: 400,
+              success: false,
+              message: `Comment ${i + 1} must have content or media`,
+            } as unknown as ApiResponse<PostListItem>,
+            { status: 400 }
+          )
+        }
+
+        if (comment.delayMinutes < 0) {
+          return NextResponse.json(
+            {
+              data: null,
+              status: 400,
+              success: false,
+              message: `Comment ${i + 1} delay must be 0 or greater`,
+            } as unknown as ApiResponse<PostListItem>,
+            { status: 400 }
+          )
+        }
+
+        // Validate comment media URLs
+        if (comment.imageUrl) {
+          const imageValidation = validateMediaUrl(comment.imageUrl, {
+            allowOwnHost: true,
+            ownHostname,
+          })
+          if (!imageValidation.valid) {
+            return NextResponse.json(
+              {
+                data: null,
+                status: 400,
+                success: false,
+                message: `Comment ${i + 1} image URL: ${imageValidation.error}. Use a publicly accessible URL or upload via the form.`,
+              } as unknown as ApiResponse<PostListItem>,
+              { status: 400 }
+            )
+          }
+        }
+
+        if (comment.videoUrl) {
+          const videoValidation = validateMediaUrl(comment.videoUrl, {
+            allowOwnHost: true,
+            ownHostname,
+          })
+          if (!videoValidation.valid) {
+            return NextResponse.json(
+              {
+                data: null,
+                status: 400,
+                success: false,
+                message: `Comment ${i + 1} video URL: ${videoValidation.error}. Use a publicly accessible URL or upload via the form.`,
+              } as unknown as ApiResponse<PostListItem>,
+              { status: 400 }
+            )
+          }
+        }
+      }
+    }
+
     const dataSource = await getConnection()
     const postRepository = dataSource.getRepository(Post)
     const mediaRepository = dataSource.getRepository(Media)
 
     // Convert UTC+7 to UTC for storage
     // datetime-local input returns time without timezone, user enters in UTC+7
-    // We need to subtract 7 hours to get UTC time
+    // We need to subtract TIMEZONE.UTC7_OFFSET_HOURS hours to get UTC time
     let scheduledAtUTC: Date | undefined = undefined
     if (scheduledFor) {
       const scheduledDateUTC7 = new Date(scheduledFor)
-      // Subtract 7 hours to convert from UTC+7 to UTC
-      scheduledAtUTC = new Date(scheduledDateUTC7.getTime() - 7 * 60 * 60 * 1000)
+      // Subtract TIMEZONE.UTC7_OFFSET_HOURS hours to convert from UTC+7 to UTC
+      scheduledAtUTC = new Date(scheduledDateUTC7.getTime() - TIMEZONE.UTC7_OFFSET_HOURS * 60 * 60 * 1000)
     }
 
     // Create post
@@ -352,6 +465,73 @@ async function createPost(request: Request, user: User) {
     })
 
     const savedPost = await postRepository.save(post)
+
+    // Create child posts for scheduled comments in a transaction
+    if (scheduledComments && scheduledComments.length > 0) {
+      try {
+        await dataSource.transaction(async (transactionalEntityManager) => {
+          for (const comment of scheduledComments) {
+            // For scheduled posts: use parent's scheduled time as base
+            // For immediate posts: use current time as base
+            const baseTime = scheduledAtUTC ? scheduledAtUTC.getTime() : Date.now()
+            const commentScheduledAt = new Date(baseTime + comment.delayMinutes * 60 * 1000)
+
+            // Determine content type for comment
+            let commentContentType = ContentType.TEXT
+            if (comment.imageUrl) {
+              commentContentType = ContentType.IMAGE
+            } else if (comment.videoUrl) {
+              commentContentType = ContentType.VIDEO
+            }
+
+            const childPost = postRepository.create({
+              userId: user.id,
+              parentPostId: savedPost.id,
+              content: comment.content?.trim() || '',
+              status: PostStatus.SCHEDULED,
+              contentType: commentContentType,
+              isScheduled: true,
+              scheduledAt: commentScheduledAt,
+              socialAccountId: socialAccountId || null,
+              commentDelayMinutes: comment.delayMinutes,
+              metadata: { threads: { replyToId: null } },
+            })
+            await transactionalEntityManager.save(childPost)
+
+            // Create media record if comment has media
+            if (comment.imageUrl || comment.videoUrl) {
+              const media = mediaRepository.create({
+                postId: childPost.id,
+                type: commentContentType === ContentType.IMAGE ? MediaType.IMAGE : MediaType.VIDEO,
+                url: comment.imageUrl || comment.videoUrl || '',
+                altText: comment.altText || undefined,
+                mimeType: commentContentType === ContentType.IMAGE ? 'image/jpeg' : 'video/mp4',
+                order: 0,
+              })
+              await transactionalEntityManager.save(media)
+            }
+
+            console.log(`Created scheduled comment ${childPost.id} for post ${savedPost.id} with delay ${comment.delayMinutes} minutes`)
+          }
+        })
+      } catch (transactionError) {
+        // Cleanup: Delete the parent post if transaction fails
+        await postRepository.delete(savedPost.id)
+        console.error(`Failed to create scheduled comments for post ${savedPost.id}, cleaned up parent post`)
+
+        return NextResponse.json(
+          {
+            data: null,
+            status: 500,
+            success: false,
+            message: transactionError instanceof Error
+              ? `Failed to create scheduled comments: ${transactionError.message}`
+              : 'Failed to create scheduled comments',
+          } as unknown as ApiResponse<PostListItem>,
+          { status: 500 }
+        )
+      }
+    }
 
     // Create media record(s) if image/video URL(s) provided
     let mediaItems: PostListItem['media'] = []
