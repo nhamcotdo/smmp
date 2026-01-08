@@ -1,5 +1,5 @@
 import 'reflect-metadata'
-import { DataSource, DataSourceOptions } from 'typeorm'
+import { DataSource } from 'typeorm'
 
 // Import entities directly
 import { User } from '../../database/entities/User.entity'
@@ -10,6 +10,7 @@ import { PostPublication } from '../../database/entities/PostPublication.entity'
 import { Media } from '../../database/entities/Media.entity'
 import { Analytics } from '../../database/entities/Analytics.entity'
 import { UploadedMedia } from '../../database/entities/UploadedMedia.entity'
+import { createDatabaseConfig } from '../utils'
 
 declare global {
   // eslint-disable-next-line no-var
@@ -17,20 +18,7 @@ declare global {
 }
 
 async function createDataSource(): Promise<DataSource> {
-  const options: DataSourceOptions = {
-    type: 'postgres',
-    host: process.env.DATABASE_HOST ?? 'localhost',
-    port: parseInt(process.env.DATABASE_PORT ?? '5432', 10),
-    username: process.env.DATABASE_USER ?? 'postgres',
-    password: process.env.DATABASE_PASSWORD ?? 'postgres',
-    database: process.env.DATABASE_NAME ?? 'smmp_db',
-    ssl: process.env.DATABASE_SSL === 'true' ? { rejectUnauthorized: false } : false,
-    extra: {
-      max: parseInt(process.env.DATABASE_POOL_MAX ?? '10', 10),
-      min: parseInt(process.env.DATABASE_POOL_MIN ?? '2', 10),
-      idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 2000,
-    },
+  const config = createDatabaseConfig({
     entities: [
       User,
       SocialAccount,
@@ -42,17 +30,10 @@ async function createDataSource(): Promise<DataSource> {
       UploadedMedia,
     ],
     synchronize: process.env.NODE_ENV !== 'production',
-    logging: process.env.NODE_ENV === 'development' ? ['error', 'warn'] : false,
-  }
+    logging: process.env.NODE_ENV === 'development',
+  })
 
-  if (process.env.DATABASE_URL) {
-    return new DataSource({
-      ...options,
-      url: process.env.DATABASE_URL,
-    } as DataSourceOptions)
-  }
-
-  return new DataSource(options)
+  return new DataSource(config)
 }
 
 export async function getConnection(): Promise<DataSource> {

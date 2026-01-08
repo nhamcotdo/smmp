@@ -11,7 +11,8 @@ import { config } from 'dotenv'
 config()
 
 import 'reflect-metadata'
-import { DataSource, DataSourceOptions } from 'typeorm'
+import { DataSource } from 'typeorm'
+import { createDatabaseConfig } from '@/lib/utils'
 
 // Import migrations
 import { IncreaseAvatarLength1704600000000 } from '../src/database/migrations/1704600000000-IncreaseAvatarLength'
@@ -21,25 +22,14 @@ async function runMigrations() {
   console.log('DATABASE_HOST:', process.env.DATABASE_HOST ?? 'localhost')
   console.log('DATABASE_NAME:', process.env.DATABASE_NAME ?? 'smmp_db')
 
-  const options: DataSourceOptions = {
-    type: 'postgres',
-    host: process.env.DATABASE_HOST ?? 'localhost',
-    port: parseInt(process.env.DATABASE_PORT ?? '5432', 10),
-    username: process.env.DATABASE_USER ?? 'postgres',
-    password: process.env.DATABASE_PASSWORD ?? 'postgres',
-    database: process.env.DATABASE_NAME ?? 'smmp_db',
-    ssl: process.env.DATABASE_SSL === 'true' ? { rejectUnauthorized: false } : false,
-    extra: {
-      max: parseInt(process.env.DATABASE_POOL_MAX ?? '10', 10),
-      min: parseInt(process.env.DATABASE_POOL_MIN ?? '2', 10),
-    },
-    migrations: [
-      IncreaseAvatarLength1704600000000
-    ],
-    logging: true,
-  }
-
-  const dataSource = new DataSource(options)
+  const dataSource = new DataSource(
+    createDatabaseConfig({
+      migrations: [
+        IncreaseAvatarLength1704600000000
+      ],
+      logging: true,
+    })
+  )
 
   if (process.env.DATABASE_URL) {
     dataSource.setOptions({ url: process.env.DATABASE_URL })

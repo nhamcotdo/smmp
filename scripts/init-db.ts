@@ -15,7 +15,9 @@ import 'reflect-metadata'
 import { config } from 'dotenv'
 config()
 
-import { DataSource, DataSourceOptions } from 'typeorm'
+import 'reflect-metadata'
+import { DataSource } from 'typeorm'
+import { createDatabaseConfig } from '@/lib/utils'
 
 /**
  * Dynamically import entities to avoid circular dependency issues.
@@ -55,26 +57,13 @@ async function initDatabase() {
   const entities = await loadEntities()
 
   // Create data source with synchronize enabled for init
-  const dataSource = new DataSource({
-    type: 'postgres',
-    host: process.env.DATABASE_HOST ?? 'localhost',
-    port: parseInt(process.env.DATABASE_PORT ?? '5432', 10),
-    username: process.env.DATABASE_USER ?? 'postgres',
-    password: process.env.DATABASE_PASSWORD ?? 'postgres',
-    database: process.env.DATABASE_NAME ?? 'smmp_db',
-    ssl: process.env.DATABASE_SSL === 'true' ? { rejectUnauthorized: false } : false,
-    extra: {
-      max: parseInt(process.env.DATABASE_POOL_MAX ?? '10', 10),
-      min: parseInt(process.env.DATABASE_POOL_MIN ?? '2', 10),
-    },
-    entities,
-    synchronize: true, // Enable sync for init only
-    logging: true,
-  } as DataSourceOptions)
-
-  if (process.env.DATABASE_URL) {
-    dataSource.setOptions({ url: process.env.DATABASE_URL } as DataSourceOptions)
-  }
+  const dataSource = new DataSource(
+    createDatabaseConfig({
+      entities,
+      synchronize: true, // Enable sync for init only
+      logging: true,
+    })
+  )
 
   try {
     // Test connection first
