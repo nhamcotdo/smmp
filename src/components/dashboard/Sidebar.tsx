@@ -21,6 +21,7 @@ const navigation: NavItem[] = [
   { name: 'Analytics', href: '/analytics', icon: '📊' },
   { name: 'Channels', href: '/channels', icon: '📱' },
   { name: 'Create Post', href: '/posts/new', icon: '✍️' },
+  { name: 'Bulk Create', href: '/posts/bulk', icon: '📋' },
   { name: 'Scheduled', href: '/posts/scheduled', icon: '📅' },
   { name: 'Media Library', href: '/media', icon: '📁' },
 ]
