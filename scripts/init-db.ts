@@ -15,7 +15,7 @@ import 'reflect-metadata'
 import { config } from 'dotenv'
 config()
 
-import { DataSource } from 'typeorm'
+import { DataSource, DataSourceOptions } from 'typeorm'
 
 /**
  * Dynamically import entities to avoid circular dependency issues.
@@ -70,10 +70,10 @@ async function initDatabase() {
     entities,
     synchronize: true, // Enable sync for init only
     logging: true,
-  } as DataSource.Options)
+  } as DataSourceOptions)
 
   if (process.env.DATABASE_URL) {
-    dataSource.setOptions({ url: process.env.DATABASE_URL } as DataSource.Options)
+    dataSource.setOptions({ url: process.env.DATABASE_URL } as DataSourceOptions)
   }
 
   try {

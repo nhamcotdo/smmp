@@ -11,8 +11,7 @@ import { config } from 'dotenv'
 config()
 
 import 'reflect-metadata'
-import { DataSource } from 'typeorm'
-import { DataSourceOptions } from 'typeorm/build/src/options/DataSourceOptions'
+import { DataSource, DataSourceOptions } from 'typeorm'
 
 // Import migrations
 import { IncreaseAvatarLength1704600000000 } from '../src/database/migrations/1704600000000-IncreaseAvatarLength'
@@ -38,13 +37,13 @@ async function runMigrations() {
       IncreaseAvatarLength1704600000000
     ],
     logging: true,
-  } as DataSourceOptions
-
-  if (process.env.DATABASE_URL) {
-    options.url = process.env.DATABASE_URL
   }
 
   const dataSource = new DataSource(options)
+
+  if (process.env.DATABASE_URL) {
+    dataSource.setOptions({ url: process.env.DATABASE_URL })
+  }
 
   try {
     console.log('📡 Connecting to database...')
