@@ -38,7 +38,7 @@ async function runMigrations() {
       IncreaseAvatarLength1704600000000
     ],
     logging: true,
-  } as any
+  } as DataSourceOptions
 
   if (process.env.DATABASE_URL) {
     options.url = process.env.DATABASE_URL

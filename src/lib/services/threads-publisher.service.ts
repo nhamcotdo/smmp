@@ -35,8 +35,27 @@ async function prepareMediaUrl(internalUserId: string, url: string): Promise<str
 }
 
 /**
- * Poll container status until it's ready or failed
- * Uses exponential backoff to avoid hammering the API
+ * Format error details for container status
+ */
+function formatErrorDetails(status: { error_message?: string }): string {
+  return status.error_message ? `. Error: ${status.error_message}` : ''
+}
+
+/**
+ * Poll container status until ready, failed, or timeout
+ *
+ * @param accessToken - Threads API access token
+ * @param containerId - Container ID to poll
+ * @param options.maxWaitMs - Maximum time to wait before timeout (default: 60000ms)
+ * @param options.initialPollIntervalMs - Initial delay between polls (default: 3000ms)
+ * @param options.maxPollIntervalMs - Maximum delay between polls (default: 5000ms)
+ *
+ * @throws Error if container fails permanently (MAX_CONSECUTIVE_FAILURES errors) or times out
+ *
+ * @example
+ * await waitForContainerReady(accessToken, containerId, {
+ *   maxWaitMs: THREADS_POLLING.VIDEO_POST_MAX_WAIT_MS
+ * })
  */
 async function waitForContainerReady(
   accessToken: string,
@@ -67,13 +86,12 @@ async function waitForContainerReady(
 
     if (status.status === 'ERROR' || status.status === 'EXPIRED') {
       consecutiveFailures++
-      console.log(`[Container ${containerId}] Failure ${consecutiveFailures}/${THREADS_POLLING.MAX_CONSECUTIVE_FAILURES}: ${status.status}` +
-        (status.error_message ? `. Error: ${status.error_message}` : ''))
+      const errorSuffix = formatErrorDetails(status)
+      console.log(`[Container ${containerId}] Failure ${consecutiveFailures}/${THREADS_POLLING.MAX_CONSECUTIVE_FAILURES}: ${status.status}${errorSuffix}`)
 
       if (consecutiveFailures >= THREADS_POLLING.MAX_CONSECUTIVE_FAILURES) {
         throw new Error(
-          `Container ${containerId} failed with status: ${status.status} after ${THREADS_POLLING.MAX_CONSECUTIVE_FAILURES} consecutive attempts` +
-          (status.error_message ? `. Error: ${status.error_message}` : '')
+          `Container ${containerId} failed with status: ${status.status} after ${THREADS_POLLING.MAX_CONSECUTIVE_FAILURES} consecutive attempts${errorSuffix}`
         )
       }
 
@@ -83,7 +101,7 @@ async function waitForContainerReady(
     } else {
       consecutiveFailures = 0 // Reset counter on non-error statuses
       // Only apply exponential backoff for non-error statuses
-      pollInterval = Math.min(pollInterval * 1.5, maxPollIntervalMs)
+      pollInterval = Math.min(pollInterval * THREADS_POLLING.BACKOFF_MULTIPLIER, maxPollIntervalMs)
     }
 
     console.log(`[Container ${containerId}] Status: ${status.status}, polling again in ${pollInterval}ms...`)

@@ -848,39 +848,37 @@ export default function CreatePostPage() {
     }
   }
 
-  if (isLoading || isLoadingChannels) {
+  if (isLoadingChannels) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-zinc-50 dark:bg-black">
-        <p className="text-zinc-600 dark:text-zinc-400">Loading...</p>
+      <div className="flex items-center justify-center py-12">
+        <div className="text-center">
+          <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-blue-600 border-r-transparent motion-reduce:animate-[spin_1.5s_linear_infinite]" role="status">
+            <span className="sr-only">Loading...</span>
+          </div>
+          <p className="mt-4 text-sm text-gray-600 dark:text-gray-400">Loading channels...</p>
+        </div>
       </div>
     )
-  }
-
-  if (!isAuthenticated || !user) {
-    return null
   }
 
   const threadsChannels = channels.filter((ch) => ch.platform === Platform.THREADS)
 
   return (
-    <div className="min-h-screen bg-zinc-50 dark:bg-black">
-      <header className="bg-white dark:bg-zinc-900 shadow-sm">
-        <div className="mx-auto max-w-3xl px-4 py-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between">
-            <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-50">
-              Create Post
-            </h1>
-            <Link
-              href="/channels"
-              className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
-            >
-              Back to Channels
-            </Link>
-          </div>
+    <div className="space-y-6">
+      {/* Page Header */}
+      <div className="border-b border-gray-200 dark:border-gray-800 pb-5">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-50">
+            Create Post
+          </h1>
+          <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
+            Create and schedule content for your social media accounts
+          </p>
         </div>
-      </header>
+      </div>
 
-      <main className="mx-auto max-w-3xl px-4 py-8 sm:px-6 lg:px-8">
+      {/* Content */}
+      <div>
         {error && (
           <div className="mb-6 rounded-md bg-red-50 p-4 dark:bg-red-900/20">
             <p className="text-sm text-red-800 dark:text-red-200">{error}</p>
@@ -1137,7 +1135,7 @@ export default function CreatePostPage() {
                       {mediaUrlInput && !mediaPreview && !isFetchingDouyin && (
                         <div className="mt-3 rounded-md bg-amber-50 p-3 dark:bg-amber-900/20">
                           <p className="mb-2 text-xs font-medium text-amber-800 dark:text-amber-200">
-                            Couldn't detect media type. Please select:
+                            Couldn&apos;t detect media type. Please select:
                           </p>
                           <div className="flex gap-3">
                             <button
@@ -1318,7 +1316,7 @@ export default function CreatePostPage() {
                     {carouselUrlInput && pendingCarouselUrlType && !isFetchingCarouselDouyin && (
                       <div className="mt-3 rounded-md bg-amber-50 p-3 dark:bg-amber-900/20">
                         <p className="mb-2 text-xs font-medium text-amber-800 dark:text-amber-200">
-                          Couldn't detect media type. Please select:
+                          Couldn&apos;t detect media type. Please select:
                         </p>
                         <div className="flex gap-3">
                           <button
@@ -1832,7 +1830,7 @@ export default function CreatePostPage() {
             </div>
           </form>
         )}
-      </main>
+      </div>
     </div>
   )
 }

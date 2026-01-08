@@ -198,50 +198,46 @@ export default function ScheduledPostsPage() {
     )
   }
 
-  if (isLoading || isLoadingPosts) {
+  if (isLoadingPosts) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-zinc-50 dark:bg-black">
-        <p className="text-zinc-600 dark:text-zinc-400">Loading...</p>
+      <div className="flex items-center justify-center py-12">
+        <div className="text-center">
+          <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-blue-600 border-r-transparent motion-reduce:animate-[spin_1.5s_linear_infinite]" role="status">
+            <span className="sr-only">Loading...</span>
+          </div>
+          <p className="mt-4 text-sm text-gray-600 dark:text-gray-400">Loading scheduled posts...</p>
+        </div>
       </div>
     )
   }
 
-  if (!isAuthenticated || !user) {
-    return null
-  }
-
   return (
-    <div className="min-h-screen bg-zinc-50 dark:bg-black">
-      <header className="bg-white dark:bg-zinc-900 shadow-sm">
-        <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-50">
-                Scheduled Posts
-              </h1>
-              <p className="text-sm text-zinc-600 dark:text-zinc-400">
-                Manage your scheduled content
-              </p>
-            </div>
-            <div className="flex gap-3">
-              <Link
-                href="/posts/new"
-                className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-500"
-              >
-                + New Post
-              </Link>
-              <Link
-                href="/channels"
-                className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
-              >
-                Channels
-              </Link>
-            </div>
+    <div className="space-y-6">
+      {/* Page Header */}
+      <div className="border-b border-gray-200 dark:border-gray-800 pb-5">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-50">
+              Scheduled Posts
+            </h1>
+            <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
+              Manage your scheduled content and drafts
+            </p>
           </div>
+          <Link
+            href="/posts/new"
+            className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+          >
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+            </svg>
+            New Post
+          </Link>
         </div>
-      </header>
+      </div>
 
-      <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+      {/* Content */}
+      <div>
         {error && (
           <div className="mb-6 rounded-md bg-red-50 p-4 dark:bg-red-900/20">
             <p className="text-sm text-red-800 dark:text-red-200">{error}</p>
@@ -361,7 +357,7 @@ export default function ScheduledPostsPage() {
             ))}
           </div>
         )}
-      </main>
+      </div>
     </div>
   )
 }

@@ -70,10 +70,10 @@ async function initDatabase() {
     entities,
     synchronize: true, // Enable sync for init only
     logging: true,
-  } as any)
+  } as DataSource.Options)
 
   if (process.env.DATABASE_URL) {
-    dataSource.setOptions({ url: process.env.DATABASE_URL } as any)
+    dataSource.setOptions({ url: process.env.DATABASE_URL } as DataSource.Options)
   }
 
   try {
@@ -94,7 +94,7 @@ async function initDatabase() {
       WHERE schemaname = 'public'
       ORDER BY tablename;
     `)
-    console.log('📊 Created tables:', tables.map((t: any) => t.tablename).join(', '))
+    console.log('📊 Created tables:', tables.map((t: { tablename: string }) => t.tablename).join(', '))
 
     // Close connection
     await dataSource.destroy()
