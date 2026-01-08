@@ -67,26 +67,28 @@ async function waitForContainerReady(
 
     if (status.status === 'ERROR' || status.status === 'EXPIRED') {
       consecutiveFailures++
-      console.log(`[Container ${containerId}] Failure ${consecutiveFailures}/3: ${status.status}` +
+      console.log(`[Container ${containerId}] Failure ${consecutiveFailures}/${THREADS_POLLING.MAX_CONSECUTIVE_FAILURES}: ${status.status}` +
         (status.error_message ? `. Error: ${status.error_message}` : ''))
 
-      if (consecutiveFailures >= 3) {
+      if (consecutiveFailures >= THREADS_POLLING.MAX_CONSECUTIVE_FAILURES) {
         throw new Error(
-          `Container ${containerId} failed with status: ${status.status} after 3 consecutive attempts` +
+          `Container ${containerId} failed with status: ${status.status} after ${THREADS_POLLING.MAX_CONSECUTIVE_FAILURES} consecutive attempts` +
           (status.error_message ? `. Error: ${status.error_message}` : '')
         )
       }
 
-      // Continue polling if less than 3 failures
-      console.log(`[Container ${containerId}] Retrying... (attempt ${consecutiveFailures + 1}/3)`)
+      // Reset poll interval for faster retry on transient errors
+      pollInterval = initialPollIntervalMs
+      console.log(`[Container ${containerId}] Retrying... (attempt ${consecutiveFailures + 1}/${THREADS_POLLING.MAX_CONSECUTIVE_FAILURES})`)
     } else {
       consecutiveFailures = 0 // Reset counter on non-error statuses
+      // Only apply exponential backoff for non-error statuses
+      pollInterval = Math.min(pollInterval * 1.5, maxPollIntervalMs)
     }
 
     console.log(`[Container ${containerId}] Status: ${status.status}, polling again in ${pollInterval}ms...`)
 
     await new Promise((resolve) => setTimeout(resolve, pollInterval))
-    pollInterval = Math.min(pollInterval * 1.5, maxPollIntervalMs)
   }
 
   throw new Error(
