@@ -337,7 +337,7 @@ export async function publishScheduledPosts(): Promise<PublishResult[]> {
         publishedAt: new Date(),
       })
 
-      // Update child comments with parent's platform_post_id for reply
+      // Update child comments with parent's database ID for later platform post ID lookup
       const childComments = await postRepository.find({
         where: { parentPostId: post.id },
       })
@@ -349,11 +349,11 @@ export async function publishScheduledPosts(): Promise<PublishResult[]> {
             ...currentMetadata,
             threads: {
               ...(currentMetadata.threads || {}),
-              replyToId: platformPostId,
+              replyToPostId: post.id, // Store parent post's database ID
             },
           },
         })
-        console.log(`Updated child comment ${child.id} with replyToId: ${platformPostId}`)
+        console.log(`Updated child comment ${child.id} with parent post ID: ${post.id}`)
       }
 
       results.push({
@@ -412,14 +412,25 @@ export async function publishScheduledPosts(): Promise<PublishResult[]> {
         continue
       }
 
+      if (childComment.parentPost.status !== PostStatus.PUBLISHED) {
+        console.warn(`Parent post not published (status: ${childComment.parentPost.status}) for child comment ${childComment.id}, skipping`)
+        continue
+      }
+
+      // Get parent's platform post ID from publications
       const parentPublication = childComment.parentPost.publications?.[0]
       if (!parentPublication?.platformPostId) {
         console.warn(`Parent post has no platform ID for child comment ${childComment.id}, skipping`)
         continue
       }
 
-      if (childComment.parentPost.status !== PostStatus.PUBLISHED) {
-        console.warn(`Parent post not published (status: ${childComment.parentPost.status}) for child comment ${childComment.id}, skipping`)
+      // Get parent post ID from metadata (stored when parent was published)
+      const commentMetadata = (childComment.metadata as { threads?: Record<string, unknown> })?.threads || {}
+      const replyToPostId = commentMetadata.replyToPostId as string | undefined
+
+      // Verify the stored parent post ID matches the actual parent
+      if (!replyToPostId || replyToPostId !== childComment.parentPost.id) {
+        console.warn(`Child comment ${childComment.id} has invalid parent post ID in metadata, skipping`)
         continue
       }
 
@@ -461,9 +472,6 @@ export async function publishScheduledPosts(): Promise<PublishResult[]> {
 
       // Get first media item if exists
       const mediaItem = childComment.media?.[0]
-
-      // Publish comment as reply based on content type
-      const commentMetadata = (childComment.metadata as { threads?: Record<string, unknown> })?.threads || {}
 
       let platformPostId: string
 
@@ -567,7 +575,7 @@ export async function publishScheduledPosts(): Promise<PublishResult[]> {
         platformUrl: platformPostUrl,
       })
 
-      console.log(`✅ Published child comment ${childComment.id} as reply to ${parentPublication.platformPostId}`)
+      console.log(`✅ Published child comment ${childComment.id} as reply to parent's platform post ${parentPublication.platformPostId}`)
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error'
 
