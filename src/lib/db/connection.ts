@@ -1,15 +1,16 @@
 import 'reflect-metadata'
 import { DataSource } from 'typeorm'
 
-// Import entities directly
-import { User } from '../../database/entities/User.entity'
-import { SocialAccount } from '../../database/entities/SocialAccount.entity'
+// Import entities in the correct order to resolve relations
+// Entities with fewer dependencies should be imported first
 import { RefreshToken } from '../../database/entities/RefreshToken.entity'
-import { Post } from '../../database/entities/Post.entity'
+import { SocialAccount } from '../../database/entities/SocialAccount.entity'
+import { UploadedMedia } from '../../database/entities/UploadedMedia.entity'
 import { PostPublication } from '../../database/entities/PostPublication.entity'
 import { Media } from '../../database/entities/Media.entity'
 import { Analytics } from '../../database/entities/Analytics.entity'
-import { UploadedMedia } from '../../database/entities/UploadedMedia.entity'
+import { Post } from '../../database/entities/Post.entity'
+import { User } from '../../database/entities/User.entity'
 import { createDatabaseConfig } from '../utils'
 
 declare global {
@@ -20,14 +21,15 @@ declare global {
 async function createDataSource(): Promise<DataSource> {
   const config = createDatabaseConfig({
     entities: [
-      User,
-      SocialAccount,
+      // Import in dependency order - entities with fewer dependencies first
       RefreshToken,
-      Post,
+      SocialAccount,
+      UploadedMedia,
       PostPublication,
       Media,
       Analytics,
-      UploadedMedia,
+      Post,
+      User,
     ],
     synchronize: process.env.NODE_ENV !== 'production',
     logging: process.env.NODE_ENV === 'development',
