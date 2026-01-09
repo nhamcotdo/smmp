@@ -9,6 +9,8 @@ import {
   CreatePostData,
 } from '@/lib/interfaces/repositories/IPost.repository'
 
+const MAX_RETRY_COUNT = 3
+
 export class TypeORMPostRepository implements IPostRepository {
   constructor(private dataSource: DataSource) {}
 
@@ -89,10 +91,19 @@ export class TypeORMPostRepository implements IPostRepository {
     const repo = this.getRepository()
 
     const findOptions: any = {
-      where: {
-        status: PostStatus.SCHEDULED,
-        scheduledAt: LessThan(before),
-      },
+      where: [
+        // Scheduled posts that are due
+        {
+          status: PostStatus.SCHEDULED,
+          scheduledAt: LessThan(before),
+        },
+        // Failed posts that can be retried (retryCount < MAX_RETRY_COUNT)
+        {
+          status: PostStatus.FAILED,
+          retryCount: LessThan(MAX_RETRY_COUNT),
+          scheduledAt: LessThan(before),
+        },
+      ],
       relations: ['media', 'socialAccount'],
       order: { scheduledAt: 'ASC' },
     }
@@ -101,7 +112,15 @@ export class TypeORMPostRepository implements IPostRepository {
       findOptions.relations = [...(findOptions.relations || []), 'publications']
     }
 
-    return await repo.find(findOptions)
+    const posts = await repo.find(findOptions)
+
+    // Additional filter: exclude failed posts that have exceeded retry count
+    return posts.filter(post => {
+      if (post.status === PostStatus.FAILED && post.retryCount >= MAX_RETRY_COUNT) {
+        return false
+      }
+      return true
+    })
   }
 
   async findByParentId(parentId: string, options?: FindPostOptions): Promise<Post[]> {

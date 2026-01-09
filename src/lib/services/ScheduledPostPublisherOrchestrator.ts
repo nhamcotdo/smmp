@@ -6,12 +6,15 @@ import { PostQueryService } from './post/PostQueryService'
 import { PostValidatorService } from './post/PostValidatorService'
 import { PublicationService } from './post/PublicationService'
 
+const MAX_RETRY_COUNT = 3
+
 export interface PublishTaskResult {
   postId: string
   success: boolean
   error?: string
   platformPostId?: string
   platformUrl?: string
+  skipped?: boolean
 }
 
 export class ScheduledPostPublisherOrchestrator {
@@ -80,6 +83,24 @@ export class ScheduledPostPublisherOrchestrator {
     ownHostname: string,
     parentPostsMap: Map<string, Post>
   ): Promise<PublishTaskResult | null> {
+    // Check if post has exceeded maximum retry count
+    if (post.retryCount >= MAX_RETRY_COUNT) {
+      console.warn(`⚠️  Post ${post.id} has exceeded maximum retry count (${MAX_RETRY_COUNT}), marking as permanently failed`)
+
+      await publicationService.markPostAsFailed(
+        post.id,
+        `Maximum retry count (${MAX_RETRY_COUNT}) exceeded`,
+        post.retryCount
+      )
+
+      return {
+        postId: post.id,
+        success: false,
+        error: `Maximum retry count (${MAX_RETRY_COUNT}) exceeded`,
+        skipped: true,
+      }
+    }
+
     try {
       if (post.parentPostId) {
         const parentPost = parentPostsMap.get(post.parentPostId)
