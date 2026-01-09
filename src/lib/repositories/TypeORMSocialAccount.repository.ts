@@ -1,7 +1,7 @@
 import { DataSource } from 'typeorm'
 import { SocialAccount } from '@/database/entities/SocialAccount.entity'
 import { Platform, AccountStatus } from '@/database/entities/enums'
-import { LessThan } from 'typeorm'
+import { LessThan, Not } from 'typeorm'
 import {
   ISocialAccountRepository,
   CreateSocialAccountData,
@@ -29,7 +29,7 @@ export class TypeORMSocialAccountRepository implements ISocialAccountRepository 
   async findByUserId(userId: string): Promise<SocialAccount[]> {
     const repo = this.getRepository()
     return await repo.find({
-      where: { userId },
+      where: { userId, status: Not(AccountStatus.REVOKED) },
       order: { createdAt: 'DESC' },
     })
   }
@@ -37,7 +37,7 @@ export class TypeORMSocialAccountRepository implements ISocialAccountRepository 
   async findByUserIdAndPlatform(userId: string, platform: Platform): Promise<SocialAccount[]> {
     const repo = this.getRepository()
     return await repo.find({
-      where: { userId, platform },
+      where: { userId, platform, status: Not(AccountStatus.REVOKED) },
       order: { createdAt: 'DESC' },
     })
   }

@@ -3,7 +3,8 @@ import { getConnection } from '@/lib/db/connection'
 import { SocialAccount } from '@/database/entities/SocialAccount.entity'
 import { User } from '@/database/entities/User.entity'
 import { withAuth } from '@/lib/auth/middleware'
-import { Platform } from '@/database/entities/enums'
+import { Platform, AccountStatus } from '@/database/entities/enums'
+import { Not } from 'typeorm'
 import type { ApiResponse } from '@/lib/types'
 
 interface ChannelResponse {
@@ -32,7 +33,10 @@ async function getChannels(_request: Request, user: User) {
     const socialAccountRepository = dataSource.getRepository(SocialAccount)
 
     const accounts = await socialAccountRepository.find({
-      where: { userId: user.id },
+      where: {
+        userId: user.id,
+        status: Not(AccountStatus.REVOKED),
+      },
       order: { createdAt: 'DESC' },
     })
 
