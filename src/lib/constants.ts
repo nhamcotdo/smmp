@@ -48,6 +48,14 @@ export const THREADS_POLLING = {
 } as const
 
 /**
+ * Scheduled post publisher configuration
+ */
+export const SCHEDULED_POST_PUBLISHER = {
+  MAX_RETRY_COUNT: 2,
+  PUBLISHING_TIMEOUT_MS: 30 * 60 * 1000, // 30 minutes - reset stuck PUBLISHING posts
+} as const
+
+/**
  * Media proxy configuration
  */
 export const MEDIA_PROXY = {

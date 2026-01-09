@@ -20,6 +20,7 @@ export interface IPostRepository {
   findByIds(ids: string[], options?: FindPostOptions): Promise<Post[]>
   findByUserId(userId: string, options?: FindPostOptions): Promise<Post[]>
   findDueForPublishing(before: Date, options?: FindPostOptions): Promise<Post[]>
+  findStuckPublishingPosts(timeoutMs: number): Promise<Post[]>
   findByParentId(parentId: string, options?: FindPostOptions): Promise<Post[]>
   create(data: CreatePostData): Post
   save(post: Post): Promise<Post>

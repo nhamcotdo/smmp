@@ -8,8 +8,9 @@ import {
   StatusUpdateMetadata,
   CreatePostData,
 } from '@/lib/interfaces/repositories/IPost.repository'
+import { SCHEDULED_POST_PUBLISHER } from '@/lib/constants'
 
-const MAX_RETRY_COUNT = 3
+const MAX_RETRY_COUNT = SCHEDULED_POST_PUBLISHER.MAX_RETRY_COUNT
 
 export class TypeORMPostRepository implements IPostRepository {
   constructor(private dataSource: DataSource) {}
@@ -114,13 +115,33 @@ export class TypeORMPostRepository implements IPostRepository {
 
     const posts = await repo.find(findOptions)
 
-    // Additional filter: exclude failed posts that have exceeded retry count
+    // Additional filter: exclude posts that should not be processed
     return posts.filter(post => {
+      // Exclude failed posts that have exceeded retry count
       if (post.status === PostStatus.FAILED && post.retryCount >= MAX_RETRY_COUNT) {
+        return false
+      }
+      // Exclude posts that are currently being published (prevents duplicate publishes)
+      if (post.status === PostStatus.PUBLISHING) {
         return false
       }
       return true
     })
+  }
+
+  async findStuckPublishingPosts(timeoutMs: number): Promise<Post[]> {
+    const repo = this.getRepository()
+    const cutoffTime = new Date(Date.now() - timeoutMs)
+
+    const findOptions: any = {
+      where: {
+        status: PostStatus.PUBLISHING,
+        updatedAt: LessThan(cutoffTime),
+      },
+      relations: ['media', 'socialAccount'],
+    }
+
+    return await repo.find(findOptions)
   }
 
   async findByParentId(parentId: string, options?: FindPostOptions): Promise<Post[]> {

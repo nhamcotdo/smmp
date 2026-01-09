@@ -5,8 +5,9 @@ import { PublishContext } from '@/lib/strategies/IPostPublishingStrategy'
 import { PostQueryService } from './post/PostQueryService'
 import { PostValidatorService } from './post/PostValidatorService'
 import { PublicationService } from './post/PublicationService'
+import { SCHEDULED_POST_PUBLISHER } from '@/lib/constants'
 
-const MAX_RETRY_COUNT = 3
+const MAX_RETRY_COUNT = SCHEDULED_POST_PUBLISHER.MAX_RETRY_COUNT
 
 export interface PublishTaskResult {
   postId: string
@@ -30,6 +31,20 @@ export class ScheduledPostPublisherOrchestrator {
     const queryService = new PostQueryService(uow)
     const validatorService = new PostValidatorService(uow)
     const publicationService = new PublicationService(uow)
+
+    // Recover stuck PUBLISHING posts before processing new ones
+    const stuckPosts = await queryService.findStuckPublishingPosts(SCHEDULED_POST_PUBLISHER.PUBLISHING_TIMEOUT_MS)
+    if (stuckPosts.length > 0) {
+      console.warn(`⚠️  Found ${stuckPosts.length} stuck posts in PUBLISHING status, recovering...`)
+      for (const stuckPost of stuckPosts) {
+        await publicationService.markPostAsFailed(
+          stuckPost.id,
+          'Post was stuck in PUBLISHING status (process may have crashed)',
+          stuckPost.retryCount + 1
+        )
+        console.warn(`Recovered stuck post ${stuckPost.id}`)
+      }
+    }
 
     const now = new Date()
     const duePosts = await queryService.findDueForPublishing(now)

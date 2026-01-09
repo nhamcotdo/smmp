@@ -1,6 +1,5 @@
 import { IUnitOfWork } from '@/lib/interfaces'
 import { Post, PostStatus, Platform, AccountStatus } from '@/database/entities'
-import { FindPostOptions } from '@/lib/interfaces/repositories/IPost.repository'
 
 export class PostQueryService {
   constructor(private uow: IUnitOfWork) {}
@@ -11,6 +10,10 @@ export class PostQueryService {
       includePublications: true,
       includeSocialAccount: true,
     })
+  }
+
+  async findStuckPublishingPosts(timeoutMs: number): Promise<Post[]> {
+    return await this.uow.posts.findStuckPublishingPosts(timeoutMs)
   }
 
   async batchLoadParentPosts(parentIds: string[]): Promise<Map<string, Post>> {
