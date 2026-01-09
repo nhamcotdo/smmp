@@ -49,3 +49,26 @@ export function getNowUtcPlus7Input(): string {
   const utcPlus7 = new Date(now.getTime() + UTC_PLUS_7_OFFSET_MS + now.getTimezoneOffset() * 60 * 1000)
   return utcPlus7.toISOString().slice(0, 16)
 }
+
+/**
+ * Convert UTC Date to formatted UTC+7 string for display
+ * @param utcDate - UTC Date or ISO string
+ * @returns Formatted date string in UTC+7 timezone
+ *
+ * @example
+ * utcToUtcPlus7Display('2026-01-08T03:00:00Z') // Returns '1/8/2026, 10:00:00 AM'
+ */
+export function utcToUtcPlus7Display(utcDate: string | Date): string {
+  const date = typeof utcDate === 'string' ? new Date(utcDate) : utcDate
+  // Use toLocaleString with Asia/Ho_Chi_Minh timezone to properly convert UTC to UTC+7
+  return date.toLocaleString('en-US', {
+    timeZone: 'Asia/Ho_Chi_Minh',
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: true,
+  })
+}

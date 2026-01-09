@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useAuth } from '@/contexts/AuthContext'
 import Link from 'next/link'
 import { PostStatus } from '@/database/entities/enums'
-import { utcToUtcPlus7Input, utcPlus7ToUtc } from '@/lib/utils/timezone'
+import { utcToUtcPlus7Input, utcPlus7ToUtc, utcToUtcPlus7Display } from '@/lib/utils/timezone'
 
 interface ScheduledPost {
   id: string
@@ -154,10 +154,7 @@ export default function ScheduledPostsPage() {
 
   function formatScheduleTime(dateStr: string | null) {
     if (!dateStr) return 'Not scheduled'
-    const date = new Date(dateStr)
-    // Convert UTC to UTC+7 for display
-    const utcPlus7 = new Date(date.getTime() + 7 * 60 * 60 * 1000)
-    return utcPlus7.toLocaleString()
+    return utcToUtcPlus7Display(dateStr)
   }
 
   function getTimeUntilSchedule(dateStr: string | null) {
