@@ -4,6 +4,7 @@ import { useEffect, useState, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/contexts/AuthContext'
 import Link from 'next/link'
+import { PostStatus } from '@/database/entities/enums'
 import type { PostInsights } from '@/lib/types/analytics'
 
 interface AnalyticsOverview {
@@ -172,7 +173,7 @@ export default function AnalyticsPage() {
           if (
             pub.platform === 'THREADS' &&
             pub.platformPostId &&
-            pub.status === 'PUBLISHED' &&
+            pub.status === PostStatus.PUBLISHED &&
             !insightsCache.has(pub.id) &&
             !inFlightRequests.current.has(pub.id)
           ) {
@@ -457,7 +458,7 @@ export default function AnalyticsPage() {
                             </a>
                           )}
                         </div>
-                        {pub.platform === 'THREADS' && pub.platformPostId && pub.status === 'PUBLISHED' ? (
+                        {pub.platform === 'THREADS' && pub.platformPostId && pub.status === PostStatus.PUBLISHED ? (
                           <div className="flex items-center gap-4">
                             {pub.analytics ? (
                               <div className="flex gap-4 text-sm text-zinc-600 dark:text-zinc-400">
@@ -488,7 +489,7 @@ export default function AnalyticsPage() {
                               </div>
                             )}
                           </div>
-                        ) : pub.platform === 'THREADS' && pub.status !== 'PUBLISHED' ? (
+                        ) : pub.platform === 'THREADS' && pub.status !== PostStatus.PUBLISHED ? (
                           <span className="text-xs text-zinc-500 dark:text-zinc-400">
                             Not published yet
                           </span>
