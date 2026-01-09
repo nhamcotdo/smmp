@@ -328,6 +328,12 @@ export default function ScheduledPostsPage() {
                       </>
                     ) : (
                       <>
+                        <Link
+                          href={`/posts/${post.id}/edit`}
+                          className="rounded-md border border-blue-300 px-3 py-1 text-xs font-medium text-blue-700 hover:bg-blue-50 dark:border-blue-800 dark:text-blue-300 dark:hover:bg-blue-900/20 text-center"
+                        >
+                          Edit
+                        </Link>
                         <button
                           onClick={() => {
                             setEditingPost(post.id)
