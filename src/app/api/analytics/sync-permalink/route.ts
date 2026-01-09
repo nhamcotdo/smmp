@@ -5,7 +5,7 @@ import { SocialAccount } from '@/database/entities/SocialAccount.entity'
 import { User } from '@/database/entities/User.entity'
 import { withAuth } from '@/lib/auth/middleware'
 import { getOrBuildThreadsPostUrl } from '@/lib/services/threads.service'
-import { Platform } from '@/database/entities/enums'
+import { Platform, PostStatus } from '@/database/entities/enums'
 import type { ApiResponse } from '@/lib/types'
 
 interface SyncResponse {
@@ -28,7 +28,7 @@ async function syncPermalinks(request: Request, user: User) {
       .createQueryBuilder('publication')
       .leftJoinAndSelect('publication.socialAccount', 'socialAccount')
       .where('publication.platform = :platform', { platform: Platform.THREADS })
-      .andWhere('publication.status = :status', { status: 'PUBLISHED' })
+      .andWhere('publication.status = :status', { status: PostStatus.PUBLISHED })
       .andWhere('(publication.platformPostUrl IS NULL OR publication.platformPostUrl LIKE :oldPattern)', {
         oldPattern: 'https://threads.net/%',
       })

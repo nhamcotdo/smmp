@@ -1,6 +1,6 @@
 import { DataSource } from 'typeorm'
 import { PostPublication } from '@/database/entities/PostPublication.entity'
-import { Platform } from '@/database/entities/enums'
+import { Platform, PostStatus } from '@/database/entities/enums'
 import {
   IPostPublicationRepository,
   CreatePublicationData,
@@ -41,7 +41,7 @@ export class TypeORMPostPublicationRepository implements IPostPublicationReposit
     publication.platformPostUrl = data.platformUrl
     publication.publishedAt = data.publishedAt
     publication.metadata = data.metadata || {}
-    publication.status = 'PUBLISHED' as any
+    publication.status = PostStatus.PUBLISHED
     return publication
   }
 
