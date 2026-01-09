@@ -31,6 +31,7 @@ export class PublicationService {
   async markPostAsPublished(postId: string, result: PublishResult): Promise<void> {
     await this.uow.posts.updateStatus(postId, PostStatus.PUBLISHED, {
       publishedAt: result.platformPostUrl ? new Date() : undefined,
+      retryCount: 0, // Reset retry count on successful publish
     })
   }
 
@@ -40,7 +41,9 @@ export class PublicationService {
 
     await this.uow.posts.updateStatus(postId, PostStatus.FAILED, {
       errorMessage,
-      publishedAt: new Date(),
+      failedAt: new Date(),
+      retryCount,
+      lastRetryAt: new Date(),
     })
   }
 

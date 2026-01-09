@@ -174,8 +174,20 @@ export class TypeORMPostRepository implements IPostRepository {
       updateData.publishedAt = metadata.publishedAt
     }
 
+    if (metadata?.failedAt) {
+      updateData.failedAt = metadata.failedAt
+    }
+
     if (metadata?.errorMessage) {
       updateData.errorMessage = metadata.errorMessage
+    }
+
+    if (metadata?.retryCount !== undefined) {
+      updateData.retryCount = metadata.retryCount
+    }
+
+    if (metadata?.lastRetryAt) {
+      updateData.lastRetryAt = metadata.lastRetryAt
     }
 
     await repo.update(id, updateData)

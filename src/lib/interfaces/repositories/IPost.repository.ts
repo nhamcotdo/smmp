@@ -9,7 +9,10 @@ export interface FindPostOptions {
 
 export interface StatusUpdateMetadata {
   publishedAt?: Date
+  failedAt?: Date
   errorMessage?: string
+  retryCount?: number
+  lastRetryAt?: Date
 }
 
 export interface IPostRepository {
