@@ -23,6 +23,13 @@ interface ChildCommentDTO {
   status: PostStatus
   scheduledAt: Date | null
   commentDelayMinutes: number | null
+  media?: Array<{
+    id: string
+    type: MediaType
+    url: string
+    thumbnailUrl?: string | null
+    altText?: string | null
+  }>
 }
 
 interface PostDetail {
@@ -112,10 +119,15 @@ async function getPost(
 
     const post = await postRepository.findOne({
       where: { id: postId, userId: user.id },
-      relations: ['publications', 'childPosts', 'media'],
+      relations: ['publications', 'childPosts', 'childPosts.media', 'media'],
       order: {
         media: {
           order: 'ASC',
+        },
+        childPosts: {
+          media: {
+            order: 'ASC',
+          },
         },
       },
     })
@@ -152,6 +164,13 @@ async function getPost(
         status: child.status,
         scheduledAt: child.scheduledAt ?? null,
         commentDelayMinutes: child.commentDelayMinutes,
+        media: child.media?.map((m) => ({
+          id: m.id,
+          type: m.type,
+          url: m.url,
+          thumbnailUrl: m.thumbnailUrl,
+          altText: m.altText,
+        })) ?? [],
       })) ?? [],
       publications: post.publications?.map((pub) => ({
         id: pub.id,
@@ -164,6 +183,7 @@ async function getPost(
         id: m.id,
         type: m.type,
         url: m.url,
+        order: m.order,
         thumbnailUrl: m.thumbnailUrl,
         altText: m.altText,
       })) ?? [],
@@ -495,36 +515,42 @@ async function updatePost(
       .where('id = :postId', { postId })
       .execute()
 
-    // Update media: delete existing and create new ones
-    await mediaRepository.delete({ postId })
+    // Update media: delete existing and create new ones within transaction
+    await dataSource.transaction(async (transactionalEntityManager) => {
+      const txMediaRepository = transactionalEntityManager.getRepository(Media)
 
-    if (finalContentType === ContentType.CAROUSEL && carouselMediaItems) {
-      for (let i = 0; i < carouselMediaItems.length; i++) {
-        const item = carouselMediaItems[i]
-        const detectedMimeType = detectMimeTypeFromUrl(item.url)
-        const media = mediaRepository.create({
+      // Delete existing media
+      await txMediaRepository.delete({ postId })
+
+      // Create new media
+      if (finalContentType === ContentType.CAROUSEL && carouselMediaItems) {
+        for (let i = 0; i < carouselMediaItems.length; i++) {
+          const item = carouselMediaItems[i]
+          const detectedMimeType = detectMimeTypeFromUrl(item.url)
+          const media = txMediaRepository.create({
+            postId,
+            type: item.type === 'image' ? MediaType.IMAGE : MediaType.VIDEO,
+            url: item.url,
+            altText: item.altText || undefined,
+            mimeType: detectedMimeType || (item.type === 'image' ? 'image/jpeg' : 'video/mp4'),
+            order: i,
+          })
+          await txMediaRepository.save(media)
+        }
+      } else if (imageUrl || videoUrl) {
+        const mediaUrl = imageUrl || videoUrl || ''
+        const detectedMimeType = detectMimeTypeFromUrl(mediaUrl)
+        const media = txMediaRepository.create({
           postId,
-          type: item.type === 'image' ? MediaType.IMAGE : MediaType.VIDEO,
-          url: item.url,
-          altText: item.altText || undefined,
-          mimeType: detectedMimeType || (item.type === 'image' ? 'image/jpeg' : 'video/mp4'),
-          order: i,
+          type: finalContentType === ContentType.IMAGE ? MediaType.IMAGE : MediaType.VIDEO,
+          url: mediaUrl,
+          altText: altText || undefined,
+          mimeType: detectedMimeType || (finalContentType === ContentType.IMAGE ? 'image/jpeg' : 'video/mp4'),
+          order: 0,
         })
-        await mediaRepository.save(media)
+        await txMediaRepository.save(media)
       }
-    } else if (imageUrl || videoUrl) {
-      const mediaUrl = imageUrl || videoUrl || ''
-      const detectedMimeType = detectMimeTypeFromUrl(mediaUrl)
-      const media = mediaRepository.create({
-        postId,
-        type: finalContentType === ContentType.IMAGE ? MediaType.IMAGE : MediaType.VIDEO,
-        url: mediaUrl,
-        altText: altText || undefined,
-        mimeType: detectedMimeType || (finalContentType === ContentType.IMAGE ? 'image/jpeg' : 'video/mp4'),
-        order: 0,
-      })
-      await mediaRepository.save(media)
-    }
+    })
 
     // Update scheduled comments: delete existing and create new ones
     if (scheduledComments !== undefined) {

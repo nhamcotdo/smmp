@@ -31,6 +31,7 @@ export interface ScheduledComment {
   mediaFile?: File
   mediaPreview?: string
   mediaType?: 'image' | 'video'
+  altText?: string
 }
 
 export interface ThreadsOptions {

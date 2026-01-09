@@ -3,6 +3,7 @@ import type { ScheduledComment } from '@/lib/types/posts'
 import { useBlobCleanup } from './useBlobCleanup'
 
 interface UseScheduledCommentsProps {
+  initialComments?: Array<{ content: string; delayMinutes: number }>
   onError?: (error: string) => void
 }
 
@@ -13,10 +14,17 @@ interface UseScheduledCommentsReturn {
   updateScheduledComment: (id: string, field: 'content' | 'delayMinutes', value: string | number) => void
   handleCommentMediaSelect: (commentId: string, e: React.ChangeEvent<HTMLInputElement>) => void
   removeCommentMedia: (commentId: string) => void
+  setScheduledComments: React.Dispatch<React.SetStateAction<ScheduledComment[]>>
 }
 
-export function useScheduledComments({ onError }: UseScheduledCommentsProps = {}): UseScheduledCommentsReturn {
-  const [scheduledComments, setScheduledComments] = useState<ScheduledComment[]>([])
+export function useScheduledComments({ initialComments = [], onError }: UseScheduledCommentsProps = {}): UseScheduledCommentsReturn {
+  const [scheduledComments, setScheduledComments] = useState<ScheduledComment[]>(
+    initialComments.map(comment => ({
+      id: Math.random().toString(36).substring(7),
+      content: comment.content,
+      delayMinutes: comment.delayMinutes,
+    }))
+  )
   const { revokeBlobUrl } = useBlobCleanup()
 
   const addScheduledComment = useCallback(() => {
@@ -102,5 +110,6 @@ export function useScheduledComments({ onError }: UseScheduledCommentsProps = {}
     updateScheduledComment,
     handleCommentMediaSelect,
     removeCommentMedia,
+    setScheduledComments,
   }
 }

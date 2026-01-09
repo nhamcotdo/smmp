@@ -23,6 +23,7 @@ import { useCarouselMedia } from '@/lib/hooks/useCarouselMedia'
 import { useScheduledComments } from '@/lib/hooks/useScheduledComments'
 
 import type { PublishMode, PostContentType, ThreadsOptions, PollOptions, CarouselMediaItem } from '@/lib/types/posts'
+import { CAROUSEL } from '@/lib/constants'
 
 interface PostDetail {
   id: string
@@ -44,6 +45,13 @@ interface PostDetail {
     status: PostStatus
     scheduledAt: string | null
     commentDelayMinutes: number | null
+    media?: Array<{
+      id: string
+      type: string
+      url: string
+      thumbnailUrl?: string
+      altText?: string
+    }>
   }>
   publications?: Array<{
     id: string
@@ -56,6 +64,7 @@ interface PostDetail {
     id: string
     type: string
     url: string
+    order: number
     thumbnailUrl?: string
     altText?: string
   }>
@@ -143,6 +152,7 @@ export default function EditPostPage() {
     updateScheduledComment,
     handleCommentMediaSelect,
     removeCommentMedia,
+    setScheduledComments,
   } = useScheduledComments()
 
   // Load post data
@@ -186,11 +196,7 @@ export default function EditPostPage() {
           if (postData.contentType === ContentType.CAROUSEL) {
             // Sort by the order field from the database
             const items: CarouselMediaItem[] = postData.media
-              .sort((a, b) => {
-                // The order field is not directly in the media response,
-                // so we'll use the order they were returned
-                return 0
-              })
+              .sort((a, b) => a.order - b.order)
               .map((m) => ({
                 id: Math.random().toString(36).substring(7),
                 type: m.type === 'IMAGE' ? 'image' : 'video',
@@ -211,19 +217,27 @@ export default function EditPostPage() {
 
         // Load scheduled comments
         if (postData.childComments && postData.childComments.length > 0) {
-          for (const comment of postData.childComments) {
-            addScheduledComment()
-          }
-          // After all comments are added, update their content
-          // Using setTimeout to ensure state has updated
-          setTimeout(() => {
-            postData.childComments?.forEach((comment, index) => {
-              if (scheduledComments[index]) {
-                updateScheduledComment(scheduledComments[index].id, 'content', comment.content)
-                updateScheduledComment(scheduledComments[index].id, 'delayMinutes', comment.commentDelayMinutes || 0)
+          const commentsWithMedia = postData.childComments.map(c => {
+            const commentData = {
+              id: Math.random().toString(36).substring(7),
+              content: c.content,
+              delayMinutes: c.commentDelayMinutes || 0,
+            }
+
+            // Load media if exists
+            if (c.media && c.media.length > 0) {
+              const media = c.media[0]
+              return {
+                ...commentData,
+                mediaType: media.type === 'IMAGE' ? 'image' as const : 'video' as const,
+                mediaPreview: media.url,
+                altText: media.altText || '',
               }
-            })
-          }, 100)
+            }
+
+            return commentData
+          })
+          setScheduledComments(commentsWithMedia)
         }
 
         setSelectedChannel(postData.socialAccountId || '')
@@ -310,6 +324,9 @@ export default function EditPostPage() {
         requestBody.scheduledComments = scheduledComments.map((c) => ({
           content: c.content,
           delayMinutes: c.delayMinutes,
+          imageUrl: c.mediaType === 'image' ? c.mediaPreview : undefined,
+          videoUrl: c.mediaType === 'video' ? c.mediaPreview : undefined,
+          altText: c.altText,
         }))
       }
 
@@ -357,7 +374,7 @@ export default function EditPostPage() {
   const isSubmitDisabled =
     (publishMode === 'schedule' ? !scheduledFor : false) ||
     (contentType === 'carousel'
-      ? carouselMediaItems.length < 2 || carouselMediaItems.length > 20
+      ? carouselMediaItems.length < CAROUSEL.MIN_ITEMS || carouselMediaItems.length > CAROUSEL.MAX_ITEMS
       : !content.trim() && !mediaPreview)
 
   const handleUseCoverImage = () => {
