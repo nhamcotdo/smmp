@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server'
 import { withAuth } from '@/lib/auth/middleware'
-import { User } from '@/database/entities/User.entity'
 import type { ApiResponse } from '@/lib/types'
 import { generatePresignedUrl, getPublicUrlForKey, isR2Configured } from '@/lib/services/r2-presigned.service'
 
@@ -26,7 +25,7 @@ interface PresignedUrlRequest extends FormData {
  * Generate a presigned URL for direct upload to R2 storage
  * Client uploads directly to R2 using the presigned URL
  */
-async function generateUploadUrl(request: Request, user: User) {
+async function generateUploadUrl(request: Request, user: any) {
   try {
     const formData = await request.formData()
     const filename = formData.get('filename')

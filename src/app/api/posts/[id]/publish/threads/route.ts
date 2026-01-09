@@ -1,11 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getConnection } from '@/lib/db/connection'
-import { Post } from '@/database/entities/Post.entity'
-import { Media } from '@/database/entities/Media.entity'
-import { SocialAccount } from '@/database/entities/SocialAccount.entity'
-import { PostPublication } from '@/database/entities/PostPublication.entity'
-import { User } from '@/database/entities/User.entity'
+import { prisma } from '@/lib/db/connection'
 import { withAuth } from '@/lib/auth/middleware'
+import { PLATFORM, CONTENT_TYPE, POST_STATUS } from '@/lib/constants'
 import {
   publishTextPost,
   publishImagePost,
@@ -14,7 +10,6 @@ import {
 import {
   getOrBuildThreadsPostUrl,
 } from '@/lib/services/threads.service'
-import { Platform, PostStatus, ContentType } from '@/database/entities/enums'
 import type { ApiResponse } from '@/lib/types'
 import { validateMediaUrl, getOwnHostname } from '@/lib/utils/content-parser'
 
@@ -34,7 +29,7 @@ interface PublishResponse {
  */
 async function publishToThreads(
   request: Request,
-  user: User,
+  user: any,
   context?: { params: Promise<Record<string, string>> },
 ) {
   try {
@@ -58,16 +53,10 @@ async function publishToThreads(
       )
     }
 
-    const dataSource = await getConnection()
-    const postRepository = dataSource.getRepository(Post)
-    const mediaRepository = dataSource.getRepository(Media)
-    const socialAccountRepository = dataSource.getRepository(SocialAccount)
-    const postPublicationRepository = dataSource.getRepository(PostPublication)
-
     // Get the post with media relation
-    const post = await postRepository.findOne({
+    const post = await prisma.post.findFirst({
       where: { id: postId, userId: user.id },
-      relations: ['media'],
+      include: { media: true },
     })
 
     if (!post) {
@@ -83,24 +72,24 @@ async function publishToThreads(
     }
 
     // Get the social account
-    const socialAccount = await socialAccountRepository.findOne({
-      where: { id: channelId, userId: user.id, platform: Platform.THREADS },
+    const socialAccount = await prisma.socialAccount.findFirst({
+      where: { id: channelId, userId: user.id, platform: PLATFORM.THREADS },
     })
 
-    if (!socialAccount) {
+    if (!socialAccount || !socialAccount.accessToken) {
       return NextResponse.json(
         {
           data: null,
           status: 404,
           success: false,
-          message: 'Threads channel not found',
+          message: 'Threads channel not found or access token missing',
         } as unknown as ApiResponse<PublishResponse>,
         { status: 404 }
       )
     }
 
     // Check if already published to this channel
-    const existingPublication = await postPublicationRepository.findOne({
+    const existingPublication = await prisma.postPublication.findFirst({
       where: {
         postId: post.id,
         socialAccountId: channelId,
@@ -129,7 +118,7 @@ async function publishToThreads(
       const ownHostname = getOwnHostname()
 
       // Validate media URLs before publishing to Threads
-      if (post.contentType === ContentType.IMAGE && mediaItem?.url) {
+      if (post.contentType === CONTENT_TYPE.IMAGE && mediaItem?.url) {
         const validation = validateMediaUrl(mediaItem.url, {
           allowOwnHost: true,
           ownHostname,
@@ -147,7 +136,7 @@ async function publishToThreads(
         }
       }
 
-      if (post.contentType === ContentType.VIDEO && mediaItem?.url) {
+      if (post.contentType === CONTENT_TYPE.VIDEO && mediaItem?.url) {
         const validation = validateMediaUrl(mediaItem.url, {
           allowOwnHost: true,
           ownHostname,
@@ -167,7 +156,7 @@ async function publishToThreads(
 
       // Publish to Threads based on content type
       switch (post.contentType) {
-        case ContentType.IMAGE:
+        case CONTENT_TYPE.IMAGE:
           if (!mediaItem?.url) {
             throw new Error('Image URL is required for image posts')
           }
@@ -177,13 +166,13 @@ async function publishToThreads(
             {
               text: post.content || undefined,
               imageUrl: mediaItem.url,
-              altText: mediaItem.altText,
+              altText: mediaItem.altText || undefined,
               internalUserId: user.id,
             }
           )
           break
 
-        case ContentType.VIDEO:
+        case CONTENT_TYPE.VIDEO:
           if (!mediaItem?.url) {
             throw new Error('Video URL is required for video posts')
           }
@@ -193,13 +182,13 @@ async function publishToThreads(
             {
               text: post.content || undefined,
               videoUrl: mediaItem.url,
-              altText: mediaItem.altText,
+              altText: mediaItem.altText || undefined,
               internalUserId: user.id,
             }
           )
           break
 
-        case ContentType.TEXT:
+        case CONTENT_TYPE.TEXT:
         default:
           platformPostId = await publishTextPost(
             socialAccount.accessToken,
@@ -219,22 +208,27 @@ async function publishToThreads(
       )
 
       // Create publication record
-      const publication = postPublicationRepository.create({
-        postId: post.id,
-        socialAccountId: channelId,
-        platform: Platform.THREADS,
-        status: PostStatus.PUBLISHED,
-        platformPostId,
-        platformPostUrl,
-        publishedAt: new Date(),
-        lastSyncedAt: new Date(),
+      const publication = await prisma.postPublication.create({
+        data: {
+          postId: post.id,
+          socialAccountId: channelId,
+          platform: PLATFORM.THREADS,
+          status: POST_STATUS.PUBLISHED,
+          platformPostId,
+          platformPostUrl,
+          publishedAt: new Date(),
+          lastSyncedAt: new Date(),
+        },
       })
-      await postPublicationRepository.save(publication)
 
       // Update post status
-      post.status = PostStatus.PUBLISHED
-      post.publishedAt = new Date()
-      await postRepository.save(post)
+      await prisma.post.update({
+        where: { id: post.id },
+        data: {
+          status: POST_STATUS.PUBLISHED,
+          publishedAt: new Date(),
+        },
+      })
 
       return NextResponse.json({
         data: {
@@ -244,25 +238,30 @@ async function publishToThreads(
         },
         status: 200,
         success: true,
-        message: `Post published to Threads successfully (${post.contentType})`,
+        message: `Post published to Threads successfully (${post.contentType})`, // post.contentType is already the ContentType enum
       } as unknown as ApiResponse<PublishResponse>)
     } catch (publishError) {
       // Create failed publication record
-      const publication = postPublicationRepository.create({
-        postId: post.id,
-        socialAccountId: channelId,
-        platform: Platform.THREADS,
-        status: PostStatus.FAILED,
-        errorMessage: publishError instanceof Error ? publishError.message : 'Unknown error',
-        failedAt: new Date(),
+      await prisma.postPublication.create({
+        data: {
+          postId: post.id,
+          socialAccountId: channelId,
+          platform: PLATFORM.THREADS,
+          status: POST_STATUS.FAILED,
+          errorMessage: publishError instanceof Error ? publishError.message : 'Unknown error',
+          failedAt: new Date(),
+        },
       })
-      await postPublicationRepository.save(publication)
 
       // Update post status to failed
-      post.status = PostStatus.FAILED
-      post.failedAt = new Date()
-      post.errorMessage = publishError instanceof Error ? publishError.message : 'Unknown error'
-      await postRepository.save(post)
+      await prisma.post.update({
+        where: { id: post.id },
+        data: {
+          status: POST_STATUS.FAILED,
+          failedAt: new Date(),
+          errorMessage: publishError instanceof Error ? publishError.message : 'Unknown error',
+        },
+      })
 
       throw publishError
     }

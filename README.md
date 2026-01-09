@@ -6,7 +6,7 @@ A social media management platform built with Next.js, featuring Threads integra
 
 - **Framework**: Next.js 16 (App Router)
 - **Language**: TypeScript
-- **Database**: PostgreSQL with TypeORM
+- **Database**: PostgreSQL with Prisma ORM
 - **Authentication**: JWT with Passport (httpOnly cookies)
 - **Styling**: Tailwind CSS 4
 - **Testing**: Vitest + Testing Library
@@ -111,7 +111,7 @@ echo "127.0.0.1 threads-sample.meta" >> C:\Windows\System32\drivers\etc\hosts
 
 ```bash
 npm run build
-# TypeORM will auto-create tables on first run
+# Prisma will auto-create tables on first run in development
 ```
 
 ### 4. Start Development Server
@@ -263,8 +263,8 @@ src/
 │   ├── analytics/             # Analytics dashboard
 │   └── register/              # Registration page
 ├── contexts/                  # React contexts (Auth)
-├── database/                  # TypeORM entities
-│   └── entities/             # User, Post, SocialAccount, etc.
+├── lib/
+│   └── db/                   # Prisma client singleton
 ├── lib/
 │   ├── api/                   # API client functions
 │   ├── auth/                  # Authentication logic

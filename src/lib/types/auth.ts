@@ -1,4 +1,4 @@
-import type { UserRole } from '../../database/entities/enums'
+import type { UserRole } from '@prisma/client'
 
 export interface RegisterRequest {
   email: string

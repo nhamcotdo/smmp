@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getConnection } from '../../../../lib/db/connection'
-import { User } from '../../../../database/entities/User.entity'
+import { prisma } from '../../../../lib/db/connection'
 import { registerSchema } from '../../../../lib/validators/auth.validator'
 import { hashPassword, isPasswordStrong } from '../../../../lib/auth/password'
 import { generateToken } from '../../../../lib/auth/jwt'
+import { parseExpiresIn } from '../../../../lib/utils/jwt'
 import type { ApiResponse } from '../../../../lib/types'
 import type { AuthResponse } from '../../../../lib/types/auth'
 
@@ -36,10 +36,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const dataSource = await getConnection()
-    const userRepository = dataSource.getRepository(User)
-
-    const existingUser = await userRepository.findOne({
+    const existingUser = await prisma.user.findUnique({
       where: { email },
     })
 
@@ -56,16 +53,16 @@ export async function POST(request: NextRequest) {
 
     const hashedPassword = await hashPassword(password)
 
-    const user = userRepository.create({
-      email,
-      password: hashedPassword,
-      name,
-      role,
-      isActive: true,
-      emailVerified: false,
+    const user = await prisma.user.create({
+      data: {
+        email,
+        password: hashedPassword,
+        name,
+        role,
+        isActive: true,
+        emailVerified: false,
+      },
     })
-
-    await userRepository.save(user)
 
     const token = generateToken({
       sub: user.id,
@@ -74,10 +71,7 @@ export async function POST(request: NextRequest) {
     })
 
     // Parse JWT_EXPIRES_IN to get cookie maxAge
-    const expiresInMatch = process.env.JWT_EXPIRES_IN?.match(/(\d+)([dhms])/i)
-    const expiresIn = expiresInMatch
-      ? parseInt(expiresInMatch[1]) * (expiresInMatch[2] === 'd' ? 86400 : expiresInMatch[2] === 'h' ? 3600 : expiresInMatch[2] === 'm' ? 60 : 1) * 1000
-      : 15 * 60 * 1000 // Default 15 minutes
+    const expiresIn = parseExpiresIn(process.env.JWT_EXPIRES_IN, 15 * 60 * 1000)
 
     const response: AuthResponse = {
       user: {

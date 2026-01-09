@@ -1,26 +1,22 @@
-import { getConnection } from '../db/connection'
-import { User } from '../../database/entities/User.entity'
+import { prisma } from '../db/connection'
 
 export async function verifyJwtToken(token: string) {
   const { verifyToken } = await import('./jwt')
   const payload = verifyToken(token)
 
-  const dataSource = await getConnection()
-  const userRepository = dataSource.getRepository(User)
-
-  const user = await userRepository.findOne({
+  const user = await prisma.user.findUnique({
     where: { id: payload.sub, isActive: true },
-    select: [
-      'id',
-      'email',
-      'name',
-      'role',
-      'isActive',
-      'emailVerified',
-      'avatar',
-      'createdAt',
-      'updatedAt',
-    ],
+    select: {
+      id: true,
+      email: true,
+      name: true,
+      role: true,
+      isActive: true,
+      emailVerified: true,
+      avatar: true,
+      createdAt: true,
+      updatedAt: true,
+    },
   })
 
   if (!user || !user.isActive) {

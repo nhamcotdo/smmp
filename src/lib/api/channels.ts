@@ -3,15 +3,16 @@
  */
 
 import { ThreadsReplyControl } from '@/lib/types/threads'
+import type { PlatformValue, AccountStatusValue, AccountHealthValue } from '@/lib/constants'
 
 export interface Channel {
   id: string
-  platform: string
+  platform: PlatformValue
   username: string
   displayName?: string
   avatar?: string
-  status: string
-  health: string
+  status: AccountStatusValue
+  health: AccountHealthValue
   followersCount?: number
   followingCount?: number
   postsCount?: number

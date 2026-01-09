@@ -1,13 +1,10 @@
 import { NextResponse } from 'next/server'
-import { getConnection } from '@/lib/db/connection'
-import { Post } from '@/database/entities/Post.entity'
-import { Media } from '@/database/entities/Media.entity'
-import { User } from '@/database/entities/User.entity'
+import { prisma } from '@/lib/db/connection'
 import { withAuth } from '@/lib/auth/middleware'
-import { PostStatus, ContentType, MediaType } from '@/database/entities/enums'
 import type { ApiResponse } from '@/lib/types'
 import type { BulkPostFormData, PostContentType } from '@/lib/types/posts'
-import { CAROUSEL, SCHEDULED_COMMENTS, TIMEZONE } from '@/lib/constants'
+import type { ContentType } from '@prisma/client'
+import { CAROUSEL, SCHEDULED_COMMENTS, TIMEZONE, POST_STATUS, CONTENT_TYPE, MEDIA_TYPE } from '@/lib/constants'
 import { validateMediaUrl, getOwnHostname, detectMimeTypeFromUrl } from '@/lib/utils/content-parser'
 
 interface BulkCreateRequest {
@@ -20,15 +17,15 @@ interface BulkCreateResponse {
   errors: Array<{ index: number; error: string }>
 }
 
-// Convert PostContentType to ContentType enum
+// Convert PostContentType to ContentType
 function convertToContentType(contentType: PostContentType, hasImage: boolean, hasVideo: boolean): ContentType {
-  if (contentType === 'carousel') return ContentType.CAROUSEL
-  if (hasImage) return ContentType.IMAGE
-  if (hasVideo) return ContentType.VIDEO
-  return ContentType.TEXT
+  if (contentType === 'carousel') return CONTENT_TYPE.CAROUSEL as ContentType
+  if (hasImage) return CONTENT_TYPE.IMAGE as ContentType
+  if (hasVideo) return CONTENT_TYPE.VIDEO as ContentType
+  return CONTENT_TYPE.TEXT as ContentType
 }
 
-async function bulkCreatePosts(request: Request, user: User) {
+async function bulkCreatePosts(request: Request, user: any) {
   try {
     const body = await request.json() as BulkCreateRequest
     const { posts } = body
@@ -45,9 +42,6 @@ async function bulkCreatePosts(request: Request, user: User) {
       )
     }
 
-    const dataSource = await getConnection()
-    const postRepository = dataSource.getRepository(Post)
-    const mediaRepository = dataSource.getRepository(Media)
     const ownHostname = getOwnHostname()
 
     const results: BulkCreateResponse = {
@@ -82,7 +76,7 @@ async function bulkCreatePosts(request: Request, user: User) {
           continue
         }
 
-        // Determine content type - convert from PostContentType to ContentType enum
+        // Determine content type - convert from PostContentType to string
         const finalContentType = convertToContentType(
           contentType,
           !!imageUrl,
@@ -90,7 +84,7 @@ async function bulkCreatePosts(request: Request, user: User) {
         )
 
         // Validate carousel
-        if (finalContentType === ContentType.CAROUSEL) {
+        if (finalContentType === CONTENT_TYPE.CAROUSEL) {
           if (!carouselMediaItems || carouselMediaItems.length < CAROUSEL.MIN_ITEMS) {
             results.failed++
             results.errors.push({ index: i, error: `Carousel must have at least ${CAROUSEL.MIN_ITEMS} items` })
@@ -175,100 +169,104 @@ async function bulkCreatePosts(request: Request, user: User) {
         }
 
         // Validate and create post
-        const post = postRepository.create({
-          userId: user.id,
-          content: content?.trim() || '',
-          status: publishMode === 'schedule' ? PostStatus.SCHEDULED : PostStatus.DRAFT,
-          contentType: finalContentType,
-          isScheduled: publishMode === 'schedule',
-          scheduledAt: scheduledAtUTC,
-          socialAccountId: socialAccountId || null,
-          metadata: threadsOptions ? { threads: threadsOptions } : undefined,
+        const savedPost = await prisma.post.create({
+          data: {
+            userId: user.id,
+            content: content?.trim() || '',
+            status: publishMode === 'schedule' ? POST_STATUS.SCHEDULED : POST_STATUS.DRAFT,
+            contentType: finalContentType,
+            isScheduled: publishMode === 'schedule',
+            scheduledAt: scheduledAtUTC,
+            socialAccountId: socialAccountId || null,
+            metadata: threadsOptions ? { threads: threadsOptions } as any : undefined,
+          },
         })
 
-        const savedPost = await postRepository.save(post)
-
         // Create media records
-        if (finalContentType === ContentType.CAROUSEL && carouselMediaItems) {
+        if (finalContentType === CONTENT_TYPE.CAROUSEL && carouselMediaItems) {
           for (let j = 0; j < carouselMediaItems.length; j++) {
             const item = carouselMediaItems[j]
             const detectedMimeType = detectMimeTypeFromUrl(item.url)
-            const media = mediaRepository.create({
-              postId: savedPost.id,
-              type: item.type === 'image' ? MediaType.IMAGE : MediaType.VIDEO,
-              url: item.url,
-              altText: item.altText || undefined,
-              mimeType: detectedMimeType || (item.type === 'image' ? 'image/jpeg' : 'video/mp4'),
-              order: j,
+            await prisma.media.create({
+              data: {
+                postId: savedPost.id,
+                type: item.type === 'image' ? MEDIA_TYPE.IMAGE : MEDIA_TYPE.VIDEO,
+                url: item.url,
+                altText: item.altText || undefined,
+                mimeType: detectedMimeType || (item.type === 'image' ? 'image/jpeg' : 'video/mp4'),
+                order: j,
+              },
             })
-            await mediaRepository.save(media)
           }
         } else if (imageUrl || videoUrl) {
           const mediaUrl = imageUrl || videoUrl || ''
           const detectedMimeType = detectMimeTypeFromUrl(mediaUrl)
-          const media = mediaRepository.create({
-            postId: savedPost.id,
-            type: finalContentType === ContentType.IMAGE ? MediaType.IMAGE : MediaType.VIDEO,
-            url: mediaUrl,
-            altText: altText || undefined,
-            mimeType: detectedMimeType || (finalContentType === ContentType.IMAGE ? 'image/jpeg' : 'video/mp4'),
-            order: 0,
+          await prisma.media.create({
+            data: {
+              postId: savedPost.id,
+              type: finalContentType === CONTENT_TYPE.IMAGE ? MEDIA_TYPE.IMAGE : MEDIA_TYPE.VIDEO,
+              url: mediaUrl,
+              altText: altText || undefined,
+              mimeType: detectedMimeType || (finalContentType === CONTENT_TYPE.IMAGE ? 'image/jpeg' : 'video/mp4'),
+              order: 0,
+            },
           })
-          await mediaRepository.save(media)
         }
 
         // Create scheduled comments if provided
         if (scheduledComments && scheduledComments.length > 0) {
           if (scheduledComments.length > SCHEDULED_COMMENTS.MAX_ALLOWED) {
-            await postRepository.delete(savedPost.id)
+            await prisma.post.delete({ where: { id: savedPost.id } })
             results.failed++
             results.errors.push({ index: i, error: `Maximum ${SCHEDULED_COMMENTS.MAX_ALLOWED} comments allowed` })
             continue
           }
 
           try {
-            await dataSource.transaction(async (transactionalEntityManager) => {
+            await prisma.$transaction(async (tx) => {
               for (const comment of scheduledComments) {
                 const baseTime = scheduledAtUTC ? scheduledAtUTC.getTime() : Date.now()
                 const commentScheduledAt = new Date(baseTime + comment.delayMinutes * 60 * 1000)
 
-                let commentContentType = ContentType.TEXT
+                let commentContentType: ContentType = CONTENT_TYPE.TEXT as ContentType
                 if (comment.imageUrl) {
-                  commentContentType = ContentType.IMAGE
+                  commentContentType = CONTENT_TYPE.IMAGE as ContentType
                 } else if (comment.videoUrl) {
-                  commentContentType = ContentType.VIDEO
+                  commentContentType = CONTENT_TYPE.VIDEO as ContentType
                 }
 
-                const childPost = postRepository.create({
-                  userId: user.id,
-                  parentPostId: savedPost.id,
-                  content: comment.content?.trim() || '',
-                  status: PostStatus.SCHEDULED,
-                  contentType: commentContentType,
-                  isScheduled: true,
-                  scheduledAt: commentScheduledAt,
-                  socialAccountId: socialAccountId || null,
-                  commentDelayMinutes: comment.delayMinutes,
+                const childPost = await tx.post.create({
+                  data: {
+                    userId: user.id,
+                    parentPostId: savedPost.id,
+                    content: comment.content?.trim() || '',
+                    status: POST_STATUS.SCHEDULED,
+                    contentType: commentContentType,
+                    isScheduled: true,
+                    scheduledAt: commentScheduledAt,
+                    socialAccountId: socialAccountId || null,
+                    commentDelayMinutes: comment.delayMinutes,
+                  },
                 })
-                await transactionalEntityManager.save(childPost)
 
                 if (comment.imageUrl || comment.videoUrl) {
                   const commentMediaUrl = comment.imageUrl || comment.videoUrl || ''
                   const detectedMimeType = detectMimeTypeFromUrl(commentMediaUrl)
-                  const media = mediaRepository.create({
-                    postId: childPost.id,
-                    type: commentContentType === ContentType.IMAGE ? MediaType.IMAGE : MediaType.VIDEO,
-                    url: commentMediaUrl,
-                    altText: comment.altText || undefined,
-                    mimeType: detectedMimeType || (commentContentType === ContentType.IMAGE ? 'image/jpeg' : 'video/mp4'),
-                    order: 0,
+                  await tx.media.create({
+                    data: {
+                      postId: childPost.id,
+                      type: commentContentType === CONTENT_TYPE.IMAGE ? MEDIA_TYPE.IMAGE : MEDIA_TYPE.VIDEO,
+                      url: commentMediaUrl,
+                      altText: comment.altText || undefined,
+                      mimeType: detectedMimeType || (commentContentType === CONTENT_TYPE.IMAGE ? 'image/jpeg' : 'video/mp4'),
+                      order: 0,
+                    },
                   })
-                  await transactionalEntityManager.save(media)
                 }
               }
             })
           } catch (transactionError) {
-            await postRepository.delete(savedPost.id)
+            await prisma.post.delete({ where: { id: savedPost.id } })
             throw transactionError
           }
         }

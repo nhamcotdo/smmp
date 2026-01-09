@@ -1,9 +1,7 @@
 import { NextResponse } from 'next/server'
-import { getConnection } from '@/lib/db/connection'
-import { SocialAccount } from '@/database/entities/SocialAccount.entity'
-import { User } from '@/database/entities/User.entity'
-import { Platform } from '@/database/entities/enums'
+import { prisma } from '@/lib/db/connection'
 import { withAuth } from '@/lib/auth/middleware'
+import { PLATFORM } from '@/lib/constants'
 import { getAccountInsights, extractAllMetrics } from '@/lib/services/threads.service'
 import type { ApiResponse } from '@/lib/types'
 
@@ -22,7 +20,7 @@ interface AccountInsightsResponse {
  */
 async function getChannelInsights(
   request: Request,
-  user: User,
+  user: any,
   context?: { params: Promise<Record<string, string>> },
 ) {
   try {
@@ -31,24 +29,21 @@ async function getChannelInsights(
       throw new Error('Channel ID is required')
     }
 
-    const dataSource = await getConnection()
-    const socialAccountRepository = dataSource.getRepository(SocialAccount)
-
-    const account = await socialAccountRepository.findOne({
+    const account = await prisma.socialAccount.findFirst({
       where: {
         id: channelId,
         userId: user.id,
-        platform: Platform.THREADS,
+        platform: PLATFORM.THREADS,
       },
     })
 
-    if (!account) {
+    if (!account || !account.accessToken) {
       return NextResponse.json(
         {
           data: null,
           status: 404,
           success: false,
-          message: 'Threads channel not found',
+          message: 'Threads channel not found or access token missing',
         } as unknown as ApiResponse<AccountInsightsResponse>,
         { status: 404 }
       )

@@ -1,16 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
-import type { User } from '../../database/entities/User.entity'
 import { verifyJwtToken } from './passport'
 import type { ApiResponse } from '../types'
 
 export interface AuthenticatedRequest extends Request {
-  user?: User
+  user?: any
 }
 
 /**
  * Authenticate request using httpOnly cookie
  */
-export async function authenticateRequest(request: NextRequest): Promise<{ user: User }> {
+export async function authenticateRequest(request: NextRequest): Promise<{ user: any }> {
   // Get token from cookie
   const token = request.cookies.get('auth_token')?.value
 
@@ -30,7 +29,7 @@ export async function authenticateRequest(request: NextRequest): Promise<{ user:
 }
 
 export function withAuth<T>(
-  handler: (request: NextRequest, user: User, context?: { params: Promise<Record<string, string>> }) => Promise<NextResponse<ApiResponse<T>>>,
+  handler: (request: NextRequest, user: any, context?: { params: Promise<Record<string, string>> }) => Promise<NextResponse<ApiResponse<T>>>,
 ) {
   return async (
     request: NextRequest,
@@ -64,7 +63,7 @@ export function withAuth<T>(
 
 export function withAuthAndRoles<T>(
   allowedRoles: string[],
-  handler: (request: NextRequest, user: User) => Promise<NextResponse<ApiResponse<T>>>,
+  handler: (request: NextRequest, user: any) => Promise<NextResponse<ApiResponse<T>>>,
 ) {
   return async (request: NextRequest): Promise<NextResponse<ApiResponse<T>>> => {
     try {

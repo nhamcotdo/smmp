@@ -1,10 +1,9 @@
 import { NextResponse } from 'next/server'
-import { withAuth } from '../../../../lib/auth/middleware'
-import type { User } from '../../../../database/entities/User.entity'
-import type { ApiResponse } from '../../../../lib/types'
-import type { UserResponse } from '../../../../lib/types/auth'
+import { withAuth } from '@/lib/auth/middleware'
+import type { ApiResponse } from '@/lib/types'
+import type { UserResponse } from '@/lib/types/auth'
 
-async function getMeHandler(request: Request, user: User) {
+async function getMeHandler(request: Request, user: any) {
   const response: UserResponse = {
     id: user.id,
     email: user.email,

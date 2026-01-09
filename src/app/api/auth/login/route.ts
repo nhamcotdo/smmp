@@ -1,30 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getConnection } from '@/lib/db/connection'
-import { User } from '@/database/entities/User.entity'
-import { RefreshToken, RefreshTokenStatus } from '@/database/entities/RefreshToken.entity'
+import { prisma } from '@/lib/db/connection'
 import { loginSchema } from '@/lib/validators/auth.validator'
 import { verifyPassword } from '@/lib/auth/password'
 import { generateToken } from '@/lib/auth/jwt'
 import { randomBytes } from 'crypto'
-import { Not } from 'typeorm'
 import type { ApiResponse } from '@/lib/types'
 import type { AuthResponse } from '@/lib/types/auth'
-
-/**
- * Parse JWT_EXPIRES_IN or JWT_REFRESH_EXPIRES_IN to milliseconds
- */
-function parseExpiresIn(envVar: string): number {
-  const match = envVar?.match(/(\d+)([dhms])/i)
-  if (match) {
-    const value = parseInt(match[1])
-    const unit = match[2].toLowerCase()
-    const multipliers: Record<string, number> = { d: 86400, h: 3600, m: 60, s: 1 }
-    return value * (multipliers[unit] || 1) * 1000
-  }
-  // Defaults
-  if (envVar?.includes('refresh')) return 7 * 24 * 60 * 60 * 1000 // 7 days
-  return 15 * 60 * 1000 // 15 minutes
-}
+import { parseExpiresIn } from '@/lib/utils/jwt'
+import { REFRESH_TOKEN_STATUS } from '@/lib/constants'
 
 export async function POST(request: NextRequest) {
   try {
@@ -44,13 +27,20 @@ export async function POST(request: NextRequest) {
 
     const { email, password, rememberMe = false } = validationResult.data
 
-    const dataSource = await getConnection()
-    const userRepository = dataSource.getRepository(User)
-    const refreshTokenRepository = dataSource.getRepository(RefreshToken)
-
-    const user = await userRepository.findOne({
+    const user = await prisma.user.findUnique({
       where: { email },
-      select: ['id', 'email', 'password', 'name', 'role', 'isActive', 'emailVerified', 'avatar', 'createdAt', 'updatedAt'],
+      select: {
+        id: true,
+        email: true,
+        password: true,
+        name: true,
+        role: true,
+        isActive: true,
+        emailVerified: true,
+        avatar: true,
+        createdAt: true,
+        updatedAt: true,
+      },
     })
 
     if (!user) {
@@ -107,24 +97,25 @@ export async function POST(request: NextRequest) {
     const refreshTokenExpiresAt = new Date(Date.now() + refreshExpiresIn)
 
     // Store refresh token in database
-    const refreshTokenEntity = refreshTokenRepository.create({
-      userId: user.id,
-      token: refreshTokenValue,
-      expiresAt: refreshTokenExpiresAt,
-      status: RefreshTokenStatus.ACTIVE,
-      isRememberMe: rememberMe,
+    const refreshTokenEntity = await prisma.refreshToken.create({
+      data: {
+        userId: user.id,
+        token: refreshTokenValue,
+        expiresAt: refreshTokenExpiresAt,
+        status: REFRESH_TOKEN_STATUS.ACTIVE,
+        isRememberMe: rememberMe,
+      },
     })
-    await refreshTokenRepository.save(refreshTokenEntity)
 
     // Revoke old refresh tokens for this user (if not remember me, keep only one)
     if (!rememberMe) {
-      await refreshTokenRepository.update(
-        {
+      await prisma.refreshToken.updateMany({
+        where: {
           userId: user.id,
-          id: Not(refreshTokenEntity.id),
+          id: { not: refreshTokenEntity.id },
         },
-        { status: RefreshTokenStatus.REVOKED }
-      )
+        data: { status: REFRESH_TOKEN_STATUS.REVOKED },
+      })
     }
 
     const response: AuthResponse = {

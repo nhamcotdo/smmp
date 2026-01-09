@@ -2,7 +2,8 @@
  * Content parsing utilities for social media posts
  */
 
-import { ContentType } from '@/database/entities/enums'
+import type { ContentType } from '@prisma/client'
+import { CONTENT_TYPE } from '@/lib/constants'
 
 /**
  * Validate media URL with hostname-aware public accessibility check
@@ -17,7 +18,7 @@ export function validateMediaUrlForPublishing(
 ): { valid: boolean; error?: string } {
   if (!url) {
     // Text posts don't need URLs
-    if (contentType === ContentType.TEXT) {
+    if (contentType === CONTENT_TYPE.TEXT) {
       return { valid: true }
     }
     return { valid: false, error: 'Media URL is required' }

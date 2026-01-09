@@ -1,39 +1,32 @@
 # Database Installation and Setup
 
-This guide will help you set up the PostgreSQL database and TypeORM for the SMMP project.
+This guide will help you set up the PostgreSQL database and Prisma for the SMMP project.
 
 ## Prerequisites
 
 1. **PostgreSQL** (version 14 or higher recommended)
-2. **Node.js** and **pnpm** package manager
-3. **Database credentials** (host, port, username, password, database name)
+2. **Node.js** and **npm** package manager
+3. **Database credentials** (connection string)
 
 ## Step 1: Install Dependencies
 
-Install the required TypeORM and PostgreSQL packages:
+Install the required Prisma packages:
 
 ```bash
-pnpm add typeorm pg
-pnpm add -D @types/pg
+npm install @prisma/client
+npm install -D prisma
 ```
 
 ## Step 2: Environment Configuration
 
-Update your `.env` file with the following database configuration:
+Update your `.env` file with the database connection string:
 
 ```env
-# Database Configuration
-DB_HOST=localhost
-DB_PORT=5432
-DB_USERNAME=your_username
-DB_PASSWORD=your_password
-DB_NAME=smmp
+# Database Connection String
+DATABASE_URL="postgresql://username:password@localhost:5432/smmp?schema=public"
 
 # Environment
 NODE_ENV=development
-
-# SSL (for production)
-# DB_CA_CERT=path_to_cert
 ```
 
 ## Step 3: Create Database
@@ -50,43 +43,39 @@ CREATE DATABASE smmp;
 createdb -U postgres smmp
 ```
 
-## Step 4: Generate Initial Migration
+## Step 4: Generate Prisma Client
 
-Generate the initial migration from your entities:
-
-```bash
-# Install typeorm-cli globally or use npx
-npx typeorm migration:generate -d src/database/config/data-source.ts src/database/migrations/InitialSchema
-```
-
-## Step 5: Run Migrations
-
-Execute the migrations to create database tables:
+After modifying the schema, generate the Prisma Client:
 
 ```bash
-npx typeorm migration:run -d src/database/config/data-source.ts
+npm run db:push
 ```
 
-## Step 6: Verify Installation
+This will:
+1. Create the database tables if they don't exist
+2. Generate the Prisma Client TypeScript types
+3. Sync the schema with the database
+
+## Step 5: Verify Installation
 
 Create a simple script to test the database connection:
 
 ```typescript
-// src/database/test-connection.ts
-import dataSource from './config/data-source'
+// scripts/test-prisma.ts
+import { PrismaClient } from '@prisma/client'
+
+const prisma = new PrismaClient()
 
 async function testConnection() {
   try {
-    await dataSource.initialize()
+    await prisma.$connect()
     console.log('Database connection established successfully')
-    console.log('Database:', dataSource.options.database)
-    console.log('Host:', dataSource.options.host)
-    
+
     // Test a simple query
-    const result = await dataSource.query('SELECT NOW()')
-    console.log('Database time:', result[0].now)
-    
-    await dataSource.destroy()
+    const result = await prisma.$queryRaw`SELECT NOW()`
+    console.log('Database time:', result)
+
+    await prisma.$disconnect()
   } catch (error) {
     console.error('Error connecting to database:', error)
     process.exit(1)
@@ -99,100 +88,115 @@ testConnection()
 Run the test:
 
 ```bash
-ts-node src/database/test-connection.ts
+npx tsx scripts/test-prisma.ts
 ```
 
-## Step 7: Create Custom Indexes (Optional)
+## Step 6: Open Prisma Studio (Optional)
 
-For optimal JSONB query performance, create additional indexes:
+Prisma Studio is a visual database browser:
 
-```sql
--- Connect to your database
-psql -U postgres -d smmp
-
--- Create GIN indexes for JSONB operations
-CREATE INDEX idx_posts_hashtags_gin ON posts USING GIN (hashtags);
-CREATE INDEX idx_posts_mentions_gin ON posts USING GIN (mentions);
-CREATE INDEX idx_users_preferences_gin ON users USING GIN (preferences);
-CREATE INDEX idx_social_accounts_metadata_gin ON social_accounts USING GIN (metadata);
-
--- Verify indexes
-\di
+```bash
+npm run db:studio
 ```
+
+This will open a GUI at `http://localhost:5555` where you can view and edit data.
 
 ## Migration Workflow
 
-### Create a New Migration
+### Development: Quick Schema Sync
 
-After modifying entities, generate a new migration:
-
-```bash
-npx typeorm migration:generate -d src/database/config/data-source.ts src/database/migrations/MigrationName
-```
-
-### Revert Last Migration
+For rapid development, push schema changes directly:
 
 ```bash
-npx typeorm migration:revert -d src/database/config/data-source.ts
+npm run db:push
 ```
 
-### Show Migration Status
+**Note:** This resets the database in development mode. Use migrations for production-ready changes.
+
+### Development: Create Migration
+
+Create a migration file and apply it:
 
 ```bash
-npx typeorm migration:show -d src/database/config/data-source.ts
+npm run db:migrate:dev --name migration_name
 ```
 
-### Synchronize Schema (Development Only)
+This creates a migration in `prisma/migrations/` and applies it.
 
-For quick development, you can enable auto-synchronization:
+### Production: Deploy Migrations
 
-```typescript
-// In data-source.ts
-synchronize: true,  // WARNING: Only use in development!
+Apply pending migrations in production:
+
+```bash
+npm run db:migrate:deploy
+```
+
+### Production: Reset Database (⚠️ Destructive)
+
+Reset the database and reseed:
+
+```bash
+npx prisma migrate reset
+```
+
+**Warning:** This deletes all data in the database.
+
+## Schema Management
+
+### View Current Schema
+
+```bash
+cat prisma/schema.prisma
+```
+
+### Format Schema
+
+```bash
+npx prisma format
+```
+
+### Validate Schema
+
+```bash
+npx prisma validate
 ```
 
 ## Production Considerations
 
-### 1. Disable Synchronization
+### 1. Connection Pooling
 
-In production, never use schema synchronization:
+Prisma manages connection pooling automatically. Configure pool settings in the connection string:
 
-```typescript
-synchronize: false,  // Always false in production
+```env
+DATABASE_URL="postgresql://user:pass@localhost:5432/db?schema=public&connection_limit=10&pool_timeout=20"
 ```
 
 ### 2. Use SSL
 
-Configure SSL for database connections:
+Configure SSL for production database connections:
 
-```typescript
-ssl: {
-  rejectUnauthorized: false,
-  ca: process.env.DB_CA_CERT,
-}
+```env
+DATABASE_URL="postgresql://user:pass@host:5432/db?schema=public&sslmode=require"
 ```
 
-### 3. Connection Pooling
+### 3. Direct Database URL (Recommended for Production)
 
-Optimize connection pool settings:
+For serverless environments (Vercel, AWS Lambda), use the direct database URL to bypass connection limits:
 
-```typescript
-extra: {
-  max: 20,                    // Maximum pool size
-  min: 5,                     // Minimum pool size
-  idleTimeoutMillis: 30000,   // Close idle connections after 30s
-  connectionTimeoutMillis: 2000, // Connection timeout
-}
+```env
+# Direct connection URL (from your database provider)
+DIRECT_URL="postgresql://user:pass@host:5432/db?pgbouncer=true"
+
+# Connection URL with connection pooling
+DATABASE_URL="postgresql://user:pass@host:5432/db?schema=public&pgbouncer=true"
 ```
 
 ### 4. Monitoring
 
 Set up monitoring for:
+- Query performance with `prisma.$on('query')`
 - Connection pool usage
-- Query performance
-- Table bloat
-- Index usage
-- Replication lag (if using replicas)
+- Slow query logs
 
 ## Troubleshooting
 
@@ -205,50 +209,52 @@ If you can't connect to the database:
    # macOS
    brew services list
    brew services start postgresql
-   
+
    # Linux
    sudo systemctl status postgresql
    sudo systemctl start postgresql
    ```
 
-2. Verify credentials in `.env`
+2. Verify `DATABASE_URL` in `.env`
 
-3. Check PostgreSQL logs:
+3. Test connection with psql:
    ```bash
-   tail -f /usr/local/var/log/postgres.log
+   psql $DATABASE_URL
    ```
 
 ### Migration Errors
 
 If migrations fail:
 
-1. Check current migration status:
+1. Check migration status:
    ```bash
-   npx typeorm migration:show -d src/database/config/data-source.ts
+   npx prisma migrate status
    ```
 
-2. Revert problematic migration:
+2. Resolve migration by creating a new one:
    ```bash
-   npx typeorm migration:revert -d src/database/config/data-source.ts
+   npm run db:migrate:dev --name fix_issue
    ```
 
-3. Fix the issue and regenerate migration
+3. Or reset in development (⚠️ deletes data):
+   ```bash
+   npx prisma migrate reset
+   ```
 
 ### Performance Issues
 
 If queries are slow:
 
-1. Check query execution plan:
-   ```sql
-   EXPLAIN ANALYZE SELECT * FROM posts WHERE status = 'scheduled';
+1. Enable query logging:
+   ```typescript
+   const prisma = new PrismaClient({
+     log: ['query', 'error', 'warn'],
+   })
    ```
 
-2. Update table statistics:
-   ```sql
-   ANALYZE posts;
-   ```
+2. Check for missing indexes in `prisma/schema.prisma`
 
-3. Check for missing indexes
+3. Use `prisma.$executeRawUnsafe` for complex queries
 
 4. Monitor PostgreSQL performance:
    ```sql
@@ -261,10 +267,9 @@ If queries are slow:
 2. Set up automated backups
 3. Configure monitoring and alerting
 4. Implement row-level security if needed
-5. Set up read replicas for analytics queries
 
 ## Additional Resources
 
-- [TypeORM Documentation](https://typeorm.io/)
+- [Prisma Documentation](https://www.prisma.io/docs)
 - [PostgreSQL Documentation](https://www.postgresql.org/docs/)
-- [TypeORM Migration Guide](https://typeorm.io/#/migrations)
+- [Prisma Migrations Guide](https://www.prisma.io/docs/concepts/components/prisma-migrate)

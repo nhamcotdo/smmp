@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getConnection } from '@/lib/db/connection'
-import { RefreshToken, RefreshTokenStatus } from '@/database/entities/RefreshToken.entity'
-import { User } from '@/database/entities/User.entity'
+import { prisma } from '@/lib/db/connection'
 import { generateToken } from '@/lib/auth/jwt'
+import { parseExpiresIn } from '@/lib/utils/jwt'
 import type { ApiResponse } from '@/lib/types'
+import { REFRESH_TOKEN_STATUS } from '@/lib/constants'
 
 /**
  * POST /api/auth/refresh
@@ -24,11 +24,8 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const dataSource = await getConnection()
-    const refreshTokenRepository = dataSource.getRepository(RefreshToken)
-
     // Find refresh token in database
-    const refreshTokenEntity = await refreshTokenRepository.findOne({
+    const refreshTokenEntity = await prisma.refreshToken.findUnique({
       where: { token: refreshToken },
     })
 
@@ -45,7 +42,10 @@ export async function POST(request: NextRequest) {
 
     // Check if refresh token is expired
     if (refreshTokenEntity.expiresAt < new Date()) {
-      await refreshTokenRepository.update(refreshTokenEntity.id, { status: RefreshTokenStatus.EXPIRED })
+      await prisma.refreshToken.update({
+        where: { id: refreshTokenEntity.id },
+        data: { status: REFRESH_TOKEN_STATUS.EXPIRED },
+      })
       return NextResponse.json(
         {
           success: false,
@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Check if refresh token is revoked
-    if (refreshTokenEntity.status !== RefreshTokenStatus.ACTIVE) {
+    if (refreshTokenEntity.status !== REFRESH_TOKEN_STATUS.ACTIVE) {
       return NextResponse.json(
         {
           success: false,
@@ -69,8 +69,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Get user
-    const userRepository = dataSource.getRepository(User)
-    const user = await userRepository.findOne({
+    const user = await prisma.user.findUnique({
       where: { id: refreshTokenEntity.userId },
     })
 
@@ -93,10 +92,7 @@ export async function POST(request: NextRequest) {
     })
 
     // Calculate access token expiry
-    const expiresInMatch = process.env.JWT_EXPIRES_IN?.match(/(\d+)([dhms])/i)
-    const accessExpiresIn = expiresInMatch
-      ? parseInt(expiresInMatch[1]) * (expiresInMatch[2] === 'd' ? 86400 : expiresInMatch[2] === 'h' ? 3600 : expiresInMatch[2] === 'm' ? 60 : 1) * 1000
-      : 15 * 60 * 1000
+    const accessExpiresIn = parseExpiresIn(process.env.JWT_EXPIRES_IN, 15 * 60 * 1000)
 
     const response = NextResponse.json(
       {

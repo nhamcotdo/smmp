@@ -1,16 +1,15 @@
 import { NextResponse } from 'next/server'
-import { getConnection } from '@/lib/db/connection'
-import { Post } from '@/database/entities/Post.entity'
-import { Media } from '@/database/entities/Media.entity'
-import { User } from '@/database/entities/User.entity'
+import { prisma } from '@/lib/db/connection'
 import { withAuth } from '@/lib/auth/middleware'
-import { PostStatus, ContentType, MediaType } from '@/database/entities/enums'
 import type { ApiResponse } from '@/lib/types'
 import { utcPlus7ToUtc, detectMimeTypeFromUrl, validateMediaUrl, getOwnHostname } from '@/lib/utils'
 import {
   SCHEDULED_COMMENTS,
   CAROUSEL,
   TIMEZONE,
+  POST_STATUS,
+  CONTENT_TYPE,
+  MEDIA_TYPE,
 } from '@/lib/constants'
 import type {
   PollAttachment,
@@ -20,12 +19,12 @@ import type {
 interface ChildCommentDTO {
   id: string
   content: string
-  status: PostStatus
+  status: string
   scheduledAt: Date | null
   commentDelayMinutes: number | null
   media?: Array<{
     id: string
-    type: MediaType
+    type: string
     url: string
     thumbnailUrl?: string | null
     altText?: string | null
@@ -35,8 +34,8 @@ interface ChildCommentDTO {
 interface PostDetail {
   id: string
   content: string
-  status: PostStatus
-  contentType: ContentType
+  status: string
+  contentType: string
   scheduledAt: Date | null
   publishedAt: Date | null
   createdAt: string
@@ -56,7 +55,7 @@ interface PostDetail {
   }[]
   media?: {
     id: string
-    type: MediaType
+    type: string
     url: string
     thumbnailUrl?: string | null
     altText?: string | null
@@ -74,9 +73,9 @@ interface ScheduledComment {
 
 interface UpdatePostRequest {
   content?: string
-  contentType?: ContentType
+  contentType?: string
   scheduledFor?: string | null
-  status?: PostStatus
+  status?: string
   socialAccountId?: string | null
   imageUrl?: string
   videoUrl?: string
@@ -105,7 +104,7 @@ interface UpdatePostRequest {
  */
 async function getPost(
   request: Request,
-  user: User,
+  user: any,
   context?: { params: Promise<Record<string, string>> },
 ) {
   try {
@@ -114,20 +113,19 @@ async function getPost(
       throw new Error('Post ID is required')
     }
 
-    const dataSource = await getConnection()
-    const postRepository = dataSource.getRepository(Post)
-
-    const post = await postRepository.findOne({
+    const post = await prisma.post.findUnique({
       where: { id: postId, userId: user.id },
-      relations: ['publications', 'childPosts', 'childPosts.media', 'media'],
-      order: {
-        media: {
-          order: 'ASC',
-        },
+      include: {
+        publications: true,
         childPosts: {
-          media: {
-            order: 'ASC',
+          include: {
+            media: {
+              orderBy: { order: 'asc' },
+            },
           },
+        },
+        media: {
+          orderBy: { order: 'asc' },
         },
       },
     })
@@ -215,7 +213,7 @@ async function getPost(
  */
 async function updatePost(
   request: Request,
-  user: User,
+  user: any,
   context?: { params: Promise<Record<string, string>> },
 ) {
   try {
@@ -239,13 +237,9 @@ async function updatePost(
       scheduledComments
     } = body
 
-    const dataSource = await getConnection()
-    const postRepository = dataSource.getRepository(Post)
-    const mediaRepository = dataSource.getRepository(Media)
-
-    const post = await postRepository.findOne({
+    const post = await prisma.post.findUnique({
       where: { id: postId, userId: user.id },
-      relations: ['media', 'childPosts'],
+      include: { media: true, childPosts: true },
     })
 
     if (!post) {
@@ -261,7 +255,7 @@ async function updatePost(
     }
 
     // Don't allow updating published posts
-    if (post.status === PostStatus.PUBLISHED) {
+    if (post.status === POST_STATUS.PUBLISHED) {
       return NextResponse.json(
         {
           data: null,
@@ -278,15 +272,15 @@ async function updatePost(
     // Validate and determine content type
     let finalContentType = contentType || post.contentType
     if (carouselMediaItems && carouselMediaItems.length > 0) {
-      finalContentType = ContentType.CAROUSEL
+      finalContentType = CONTENT_TYPE.CAROUSEL
     } else if (imageUrl) {
-      finalContentType = ContentType.IMAGE
+      finalContentType = CONTENT_TYPE.IMAGE
     } else if (videoUrl) {
-      finalContentType = ContentType.VIDEO
+      finalContentType = CONTENT_TYPE.VIDEO
     }
 
     // Validate carousel
-    if (finalContentType === ContentType.CAROUSEL) {
+    if (finalContentType === CONTENT_TYPE.CAROUSEL) {
       if (!carouselMediaItems || carouselMediaItems.length < CAROUSEL.MIN_ITEMS) {
         return NextResponse.json(
           {
@@ -449,16 +443,7 @@ async function updatePost(
     }
 
     // Prepare update data
-    type PostUpdate = {
-      content?: string
-      contentType?: ContentType
-      isScheduled?: boolean
-      scheduledAt?: Date | null
-      status?: PostStatus
-      socialAccountId?: string | null
-      metadata?: Record<string, unknown> | null
-    }
-    const updates: PostUpdate = {}
+    const updates: Record<string, unknown> = {}
 
     if (content !== undefined) {
       updates.content = content.trim()
@@ -472,11 +457,11 @@ async function updatePost(
       if (scheduledFor === null) {
         updates.isScheduled = false
         updates.scheduledAt = null
-        updates.status = PostStatus.DRAFT
+        updates.status = POST_STATUS.DRAFT
       } else {
         updates.isScheduled = true
         updates.scheduledAt = utcPlus7ToUtc(scheduledFor)
-        updates.status = PostStatus.SCHEDULED
+        updates.status = POST_STATUS.SCHEDULED
       }
     }
 
@@ -492,70 +477,53 @@ async function updatePost(
       updates.metadata = threadsOptions ? { threads: threadsOptions } : undefined
     }
 
-    // Build update set object
-    const updateSet: Record<string, unknown> = {}
-    if (updates.content !== undefined) updateSet.content = updates.content
-    if (updates.contentType !== undefined) updateSet.contentType = updates.contentType
-    if (updates.isScheduled !== undefined) updateSet.isScheduled = updates.isScheduled
-    if (updates.status !== undefined) updateSet.status = updates.status
-    if (updates.socialAccountId !== undefined) updateSet.socialAccountId = updates.socialAccountId
-    if (updates.metadata !== undefined) updateSet.metadata = updates.metadata
-
-    // Handle scheduledFor separately to support null
-    if (scheduledFor === null) {
-      updateSet.scheduledAt = null
-    } else if (updates.scheduledAt !== undefined) {
-      updateSet.scheduledAt = updates.scheduledAt
-    }
-
-    // Execute update using query builder
-    await postRepository.createQueryBuilder()
-      .update(Post)
-      .set(updateSet)
-      .where('id = :postId', { postId })
-      .execute()
+    // Execute update
+    await prisma.post.update({
+      where: { id: postId },
+      data: updates,
+    })
 
     // Update media: delete existing and create new ones within transaction
-    await dataSource.transaction(async (transactionalEntityManager) => {
-      const txMediaRepository = transactionalEntityManager.getRepository(Media)
-
+    await prisma.$transaction(async (tx) => {
       // Delete existing media
-      await txMediaRepository.delete({ postId })
+      await tx.media.deleteMany({ where: { postId } })
 
       // Create new media
-      if (finalContentType === ContentType.CAROUSEL && carouselMediaItems) {
+      if (finalContentType === CONTENT_TYPE.CAROUSEL && carouselMediaItems) {
         for (let i = 0; i < carouselMediaItems.length; i++) {
           const item = carouselMediaItems[i]
           const detectedMimeType = detectMimeTypeFromUrl(item.url)
-          const media = txMediaRepository.create({
-            postId,
-            type: item.type === 'image' ? MediaType.IMAGE : MediaType.VIDEO,
-            url: item.url,
-            altText: item.altText || undefined,
-            mimeType: detectedMimeType || (item.type === 'image' ? 'image/jpeg' : 'video/mp4'),
-            order: i,
+          await tx.media.create({
+            data: {
+              postId,
+              type: item.type === 'image' ? MEDIA_TYPE.IMAGE : MEDIA_TYPE.VIDEO,
+              url: item.url,
+              altText: item.altText || undefined,
+              mimeType: detectedMimeType || (item.type === 'image' ? 'image/jpeg' : 'video/mp4'),
+              order: i,
+            },
           })
-          await txMediaRepository.save(media)
         }
       } else if (imageUrl || videoUrl) {
         const mediaUrl = imageUrl || videoUrl || ''
         const detectedMimeType = detectMimeTypeFromUrl(mediaUrl)
-        const media = txMediaRepository.create({
-          postId,
-          type: finalContentType === ContentType.IMAGE ? MediaType.IMAGE : MediaType.VIDEO,
-          url: mediaUrl,
-          altText: altText || undefined,
-          mimeType: detectedMimeType || (finalContentType === ContentType.IMAGE ? 'image/jpeg' : 'video/mp4'),
-          order: 0,
+        await tx.media.create({
+          data: {
+            postId,
+            type: finalContentType === CONTENT_TYPE.IMAGE ? MEDIA_TYPE.IMAGE : MEDIA_TYPE.VIDEO,
+            url: mediaUrl,
+            altText: altText || undefined,
+            mimeType: detectedMimeType || (finalContentType === CONTENT_TYPE.IMAGE ? 'image/jpeg' : 'video/mp4'),
+            order: 0,
+          },
         })
-        await txMediaRepository.save(media)
       }
     })
 
     // Update scheduled comments: delete existing and create new ones
     if (scheduledComments !== undefined) {
       // Delete existing child posts
-      await postRepository.delete({ parentPostId: postId })
+      await prisma.post.deleteMany({ where: { parentPostId: postId } })
 
       if (scheduledComments.length > 0) {
         // Calculate base time for comments
@@ -563,51 +531,59 @@ async function updatePost(
           ? new Date(scheduledFor).getTime() - TIMEZONE.UTC7_OFFSET_HOURS * 60 * 60 * 1000
           : post.scheduledAt?.getTime() || Date.now()
 
-        await dataSource.transaction(async (transactionalEntityManager) => {
+        await prisma.$transaction(async (tx) => {
           for (const comment of scheduledComments) {
             const commentScheduledAt = new Date(baseTime + comment.delayMinutes * 60 * 1000)
 
-            let commentContentType = ContentType.TEXT
+            let commentContentType: 'TEXT' | 'IMAGE' | 'VIDEO' = CONTENT_TYPE.TEXT
             if (comment.imageUrl) {
-              commentContentType = ContentType.IMAGE
+              commentContentType = CONTENT_TYPE.IMAGE
             } else if (comment.videoUrl) {
-              commentContentType = ContentType.VIDEO
+              commentContentType = CONTENT_TYPE.VIDEO
             }
 
-            const childPost = postRepository.create({
-              userId: user.id,
-              parentPostId: postId,
-              content: comment.content?.trim() || '',
-              status: PostStatus.SCHEDULED,
-              contentType: commentContentType,
-              isScheduled: true,
-              scheduledAt: commentScheduledAt,
-              socialAccountId: socialAccountId ?? post.socialAccountId,
-              commentDelayMinutes: comment.delayMinutes,
+            const childPost = await tx.post.create({
+              data: {
+                userId: user.id,
+                parentPostId: postId,
+                content: comment.content?.trim() || '',
+                status: POST_STATUS.SCHEDULED,
+                contentType: commentContentType,
+                isScheduled: true,
+                scheduledAt: commentScheduledAt,
+                socialAccountId: socialAccountId ?? post.socialAccountId,
+                commentDelayMinutes: comment.delayMinutes,
+              },
             })
-            await transactionalEntityManager.save(childPost)
 
             if (comment.imageUrl || comment.videoUrl) {
               const commentMediaUrl = comment.imageUrl || comment.videoUrl || ''
               const detectedMimeType = detectMimeTypeFromUrl(commentMediaUrl)
-              const media = mediaRepository.create({
-                postId: childPost.id,
-                type: commentContentType === ContentType.IMAGE ? MediaType.IMAGE : MediaType.VIDEO,
-                url: commentMediaUrl,
-                altText: comment.altText || undefined,
-                mimeType: detectedMimeType || (commentContentType === ContentType.IMAGE ? 'image/jpeg' : 'video/mp4'),
-                order: 0,
+              await tx.media.create({
+                data: {
+                  postId: childPost.id,
+                  type: commentContentType === CONTENT_TYPE.IMAGE ? MEDIA_TYPE.IMAGE : MEDIA_TYPE.VIDEO,
+                  url: commentMediaUrl,
+                  altText: comment.altText || undefined,
+                  mimeType: detectedMimeType || (commentContentType === CONTENT_TYPE.IMAGE ? 'image/jpeg' : 'video/mp4'),
+                  order: 0,
+                },
               })
-              await transactionalEntityManager.save(media)
             }
           }
         })
       }
     }
 
-    const updatedPost = await postRepository.findOne({
+    const updatedPost = await prisma.post.findUnique({
       where: { id: postId },
-      relations: ['publications', 'childPosts', 'media'],
+      include: {
+        publications: true,
+        childPosts: true,
+        media: {
+          orderBy: { order: 'asc' },
+        },
+      },
     })
 
     const response: PostDetail = {
@@ -665,7 +641,7 @@ async function updatePost(
  */
 async function deletePost(
   _request: Request,
-  user: User,
+  user: any,
   context?: { params: Promise<Record<string, string>> },
 ) {
   try {
@@ -674,10 +650,7 @@ async function deletePost(
       throw new Error('Post ID is required')
     }
 
-    const dataSource = await getConnection()
-    const postRepository = dataSource.getRepository(Post)
-
-    const post = await postRepository.findOne({
+    const post = await prisma.post.findUnique({
       where: { id: postId, userId: user.id },
     })
 
@@ -694,7 +667,7 @@ async function deletePost(
     }
 
     // Don't allow deleting published posts
-    if (post.status === PostStatus.PUBLISHED) {
+    if (post.status === POST_STATUS.PUBLISHED) {
       return NextResponse.json(
         {
           data: null,
@@ -706,7 +679,7 @@ async function deletePost(
       )
     }
 
-    await postRepository.remove(post)
+    await prisma.post.delete({ where: { id: postId } })
 
     return NextResponse.json({
       data: { id: postId },

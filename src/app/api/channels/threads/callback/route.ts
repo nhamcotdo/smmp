@@ -1,13 +1,12 @@
 import { NextResponse, NextRequest } from 'next/server'
-import { getConnection } from '@/lib/db/connection'
-import { SocialAccount } from '@/database/entities/SocialAccount.entity'
+import { prisma } from '@/lib/db/connection'
+import { PLATFORM, ACCOUNT_STATUS, ACCOUNT_HEALTH } from '@/lib/constants'
 import {
   exchangeCodeForToken,
   getLongLivedToken,
   getUserProfile,
 } from '@/lib/services/threads.service'
 import { validateState } from '@/lib/services/oauth-state.service'
-import { Platform, AccountStatus, AccountHealth } from '@/database/entities/enums'
 import { getBaseUrl } from '@/lib/utils/url'
 
 /**
@@ -63,15 +62,12 @@ export async function GET(request: NextRequest) {
     // Get user profile from Threads using 'me' endpoint
     const profile = await getUserProfile(longLivedToken.access_token, 'me')
 
-    const dataSource = await getConnection()
-    const socialAccountRepository = dataSource.getRepository(SocialAccount)
-
     // Check if this specific Threads account (platformUserId) is already connected
     // Allows multiple Threads accounts per user, but prevents duplicate connections
-    const existingAccount = await socialAccountRepository.findOne({
+    const existingAccount = await prisma.socialAccount.findFirst({
       where: {
         userId,
-        platform: Platform.THREADS,
+        platform: PLATFORM.THREADS,
         platformUserId: profile.id,
       },
     })
@@ -81,33 +77,37 @@ export async function GET(request: NextRequest) {
     if (existingAccount) {
       // Update existing account
       // Note: Threads uses the long-lived access_token as the refresh token
-      await socialAccountRepository.update(existingAccount.id, {
-        accessToken: longLivedToken.access_token,
-        refreshToken: longLivedToken.access_token,
-        tokenExpiresAt,
-        status: AccountStatus.ACTIVE,
-        username: profile.username,
-        avatar: profile.threads_profile_picture_url,
-        lastSyncedAt: new Date(),
+      await prisma.socialAccount.update({
+        where: { id: existingAccount.id },
+        data: {
+          accessToken: longLivedToken.access_token,
+          refreshToken: longLivedToken.access_token,
+          tokenExpiresAt,
+          status: ACCOUNT_STATUS.ACTIVE,
+          username: profile.username,
+          avatar: profile.threads_profile_picture_url,
+          lastSyncedAt: new Date(),
+        },
       })
     } else {
       // Create new account
       // Note: Threads uses the long-lived access_token as the refresh token
-      const newAccount = socialAccountRepository.create({
-        userId,
-        platform: Platform.THREADS,
-        platformUserId: profile.id,
-        username: profile.username,
-        displayName: profile.username,
-        avatar: profile.threads_profile_picture_url,
-        accessToken: longLivedToken.access_token,
-        refreshToken: longLivedToken.access_token,
-        tokenExpiresAt,
-        status: AccountStatus.ACTIVE,
-        health: AccountHealth.HEALTHY,
-        lastSyncedAt: new Date(),
+      await prisma.socialAccount.create({
+        data: {
+          userId,
+          platform: PLATFORM.THREADS,
+          platformUserId: profile.id,
+          username: profile.username,
+          displayName: profile.username,
+          avatar: profile.threads_profile_picture_url,
+          accessToken: longLivedToken.access_token,
+          refreshToken: longLivedToken.access_token,
+          tokenExpiresAt,
+          status: ACCOUNT_STATUS.ACTIVE,
+          health: ACCOUNT_HEALTH.HEALTHY,
+          lastSyncedAt: new Date(),
+        },
       })
-      await socialAccountRepository.save(newAccount)
     }
 
     // Redirect to channels page with success

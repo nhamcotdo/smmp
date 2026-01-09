@@ -1,5 +1,6 @@
 import type { PublishMode } from '@/lib/types/posts'
 import type { Channel } from '@/lib/api/channels'
+import { ACCOUNT_STATUS } from '@/lib/constants'
 
 interface ChannelSelectorProps {
   channels: Channel[]
@@ -40,7 +41,7 @@ export function ChannelSelector({
             <option value="">Choose a channel...</option>
             {channels.map((channel) => (
               <option key={channel.id} value={channel.id}>
-                @{channel.username} {channel.status !== 'active' && `(${channel.status})`}
+                @{channel.username} {channel.status !== ACCOUNT_STATUS.ACTIVE && `(${channel.status})`}
               </option>
             ))}
           </select>
@@ -63,7 +64,7 @@ export function ChannelSelector({
               <option value="">Choose a channel...</option>
               {channels.map((channel) => (
                 <option key={channel.id} value={channel.id}>
-                  @{channel.username} {channel.status !== 'active' && `(${channel.status})`}
+                  @{channel.username} {channel.status !== ACCOUNT_STATUS.ACTIVE && `(${channel.status})`}
                 </option>
               ))}
             </select>

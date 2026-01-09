@@ -4,7 +4,7 @@ import { useEffect, useState, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/contexts/AuthContext'
 import Link from 'next/link'
-import { PostStatus } from '@/database/entities/enums'
+import { PostStatus } from '@prisma/client'
 import type { PostInsights } from '@/lib/types/analytics'
 
 interface AnalyticsOverview {

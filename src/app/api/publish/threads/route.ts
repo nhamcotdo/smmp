@@ -1,12 +1,7 @@
 import { NextResponse } from 'next/server'
-import { getConnection } from '@/lib/db/connection'
-import { Post } from '@/database/entities/Post.entity'
-import { Media } from '@/database/entities/Media.entity'
-import { SocialAccount } from '@/database/entities/SocialAccount.entity'
-import { PostPublication } from '@/database/entities/PostPublication.entity'
-import { UploadedMedia } from '@/database/entities/UploadedMedia.entity'
-import { User } from '@/database/entities/User.entity'
+import { prisma } from '@/lib/db/connection'
 import { withAuth } from '@/lib/auth/middleware'
+import { VALID_REPLY_CONTROLS, PLATFORM, CONTENT_TYPE, POST_STATUS, ACCOUNT_STATUS, MEDIA_TYPE, UPLOADED_MEDIA_STATUS, SCHEDULED_COMMENTS, CAROUSEL } from '@/lib/constants'
 import {
   publishTextPost,
   publishImagePost,
@@ -14,13 +9,14 @@ import {
   publishCarouselPost,
   type CarouselMediaItem,
 } from '@/lib/services/threads-publisher.service'
-import { ThreadsReplyControl } from '@/lib/types/threads'
 import {
   getOrBuildThreadsPostUrl,
 } from '@/lib/services/threads.service'
-import { Platform, PostStatus, ContentType, MediaType } from '@/database/entities/enums'
 import type { ApiResponse } from '@/lib/types'
-import { validateMediaUrlForPublishing } from '@/lib/utils/content-parser'
+import { validateMediaUrlForPublishing, getOwnHostname } from '@/lib/utils/content-parser'
+import { UploadedMediaStatus } from '@prisma/client'
+import { ThreadsReplyControl } from '@/lib/types/threads'
+import type { ContentType } from '@prisma/client'
 
 interface ScheduledComment {
   content: string
@@ -74,7 +70,7 @@ interface PublishResponse {
  * POST /api/publish/threads
  * Create and publish a post to Threads in one request
  */
-async function publishToThreads(request: Request, user: User) {
+async function publishToThreads(request: Request, user: any) {
   try {
     const body = await request.json() as PublishRequest
     const { content, channelId, imageUrl, videoUrl, altText, carouselMediaItems, threadsOptions, scheduledComments } = body
@@ -105,7 +101,7 @@ async function publishToThreads(request: Request, user: User) {
 
     // Validate media URLs are publicly accessible
     if (imageUrl) {
-      const validation = validateMediaUrlForPublishing(imageUrl, ContentType.IMAGE)
+      const validation = validateMediaUrlForPublishing(imageUrl, CONTENT_TYPE.IMAGE)
       if (!validation.valid) {
         return NextResponse.json(
           {
@@ -120,7 +116,7 @@ async function publishToThreads(request: Request, user: User) {
     }
 
     if (videoUrl) {
-      const validation = validateMediaUrlForPublishing(videoUrl, ContentType.VIDEO)
+      const validation = validateMediaUrlForPublishing(videoUrl, CONTENT_TYPE.VIDEO)
       if (!validation.valid) {
         return NextResponse.json(
           {
@@ -150,7 +146,7 @@ async function publishToThreads(request: Request, user: User) {
 
       for (let i = 0; i < carouselMediaItems.length; i++) {
         const item = carouselMediaItems[i]
-        const contentType = item.type === 'image' ? ContentType.IMAGE : ContentType.VIDEO
+        const contentType = item.type === 'image' ? CONTENT_TYPE.IMAGE : CONTENT_TYPE.VIDEO
         const validation = validateMediaUrlForPublishing(item.url, contentType)
 
         if (!validation.valid) {
@@ -169,7 +165,7 @@ async function publishToThreads(request: Request, user: User) {
 
     // Validate scheduled comments
     if (scheduledComments && scheduledComments.length > 0) {
-      if (scheduledComments.length > 10) {
+      if (scheduledComments.length > SCHEDULED_COMMENTS.MAX_ALLOWED) {
         return NextResponse.json(
           {
             data: null,
@@ -210,7 +206,7 @@ async function publishToThreads(request: Request, user: User) {
 
         // Validate comment media URLs
         if (comment.imageUrl) {
-          const validation = validateMediaUrlForPublishing(comment.imageUrl, ContentType.IMAGE)
+          const validation = validateMediaUrlForPublishing(comment.imageUrl, CONTENT_TYPE.IMAGE)
           if (!validation.valid) {
             return NextResponse.json(
               {
@@ -225,7 +221,7 @@ async function publishToThreads(request: Request, user: User) {
         }
 
         if (comment.videoUrl) {
-          const validation = validateMediaUrlForPublishing(comment.videoUrl, ContentType.VIDEO)
+          const validation = validateMediaUrlForPublishing(comment.videoUrl, CONTENT_TYPE.VIDEO)
           if (!validation.valid) {
             return NextResponse.json(
               {
@@ -241,23 +237,18 @@ async function publishToThreads(request: Request, user: User) {
       }
     }
 
-    const dataSource = await getConnection()
-    const postRepository = dataSource.getRepository(Post)
-    const socialAccountRepository = dataSource.getRepository(SocialAccount)
-    const postPublicationRepository = dataSource.getRepository(PostPublication)
-
     // Get the social account
-    const socialAccount = await socialAccountRepository.findOne({
-      where: { id: channelId, userId: user.id, platform: Platform.THREADS },
+    const socialAccount = await prisma.socialAccount.findFirst({
+      where: { id: channelId, userId: user.id, platform: PLATFORM.THREADS },
     })
 
-    if (!socialAccount) {
+    if (!socialAccount || !socialAccount.accessToken) {
       return NextResponse.json(
         {
           data: null,
           status: 404,
           success: false,
-          message: 'Threads channel not found',
+          message: 'Threads channel not found or access token missing',
         } as unknown as ApiResponse<PublishResponse>,
         { status: 404 }
       )
@@ -265,12 +256,14 @@ async function publishToThreads(request: Request, user: User) {
 
     // Check for duplicate content to this channel
     const trimmedContent = content.trim()
-    const existingPublication = await postPublicationRepository.findOne({
+    const existingPublication = await prisma.postPublication.findFirst({
       where: {
         socialAccountId: channelId,
-        platform: Platform.THREADS,
+        platform: PLATFORM.THREADS,
       },
-      relations: ['post'],
+      include: {
+        post: true,
+      },
     })
 
     if (existingPublication && existingPublication.post?.content === trimmedContent) {
@@ -286,65 +279,63 @@ async function publishToThreads(request: Request, user: User) {
     }
 
     // Determine content type
-    let finalContentType = ContentType.TEXT
+    let finalContentType: ContentType = CONTENT_TYPE.TEXT
     if (carouselMediaItems && carouselMediaItems.length > 0) {
-      finalContentType = ContentType.CAROUSEL
+      finalContentType = CONTENT_TYPE.CAROUSEL
     } else if (imageUrl) {
-      finalContentType = ContentType.IMAGE
+      finalContentType = CONTENT_TYPE.IMAGE
     } else if (videoUrl) {
-      finalContentType = ContentType.VIDEO
+      finalContentType = CONTENT_TYPE.VIDEO
     }
 
     // Create the post first
-    const post = postRepository.create({
-      userId: user.id,
-      content: trimmedContent,
-      status: PostStatus.PUBLISHED,
-      contentType: finalContentType,
+    const post = await prisma.post.create({
+      data: {
+        userId: user.id,
+        content: trimmedContent,
+        status: POST_STATUS.PUBLISHED,
+        contentType: finalContentType,
+      },
     })
-    await postRepository.save(post)
 
     // Create media record(s) based on content type
-    const mediaRepository = dataSource.getRepository(Media)
-
-    if (finalContentType === ContentType.CAROUSEL && carouselMediaItems) {
+    if (finalContentType === CONTENT_TYPE.CAROUSEL && carouselMediaItems) {
       // Create media records for each carousel item
       for (let i = 0; i < carouselMediaItems.length; i++) {
         const item = carouselMediaItems[i]
-        const media = mediaRepository.create({
-          postId: post.id,
-          type: item.type === 'image' ? MediaType.IMAGE : MediaType.VIDEO,
-          url: item.url,
-          altText: item.altText || undefined,
-          mimeType: item.type === 'image' ? 'image/jpeg' : 'video/mp4',
-          order: i,
+        await prisma.media.create({
+          data: {
+            postId: post.id,
+            type: item.type === 'image' ? MEDIA_TYPE.IMAGE : MEDIA_TYPE.VIDEO,
+            url: item.url,
+            altText: item.altText || undefined,
+            mimeType: item.type === 'image' ? 'image/jpeg' : 'video/mp4',
+            order: i,
+          },
         })
-        await mediaRepository.save(media)
       }
     } else if (imageUrl || videoUrl) {
       // Create single media record for image or video posts
-      const media = mediaRepository.create({
-        postId: post.id,
-        type: finalContentType === ContentType.IMAGE ? MediaType.IMAGE : MediaType.VIDEO,
-        url: imageUrl || videoUrl || '',
-        altText: altText || undefined,
-        mimeType: finalContentType === ContentType.IMAGE ? 'image/jpeg' : 'video/mp4',
-        order: 0,
+      await prisma.media.create({
+        data: {
+          postId: post.id,
+          type: finalContentType === CONTENT_TYPE.IMAGE ? MEDIA_TYPE.IMAGE : MEDIA_TYPE.VIDEO,
+          url: imageUrl || videoUrl || '',
+          altText: altText || undefined,
+          mimeType: finalContentType === CONTENT_TYPE.IMAGE ? 'image/jpeg' : 'video/mp4',
+          order: 0,
+        },
       })
-      await mediaRepository.save(media)
     }
 
     let platformPostId: string
     let publicationId: string
 
-    // Valid reply control values - direct validation without fragile enum conversion
-    const validReplyControls = new Set(['EVERYONE', 'ACCOUNTS_YOU_FOLLOW', 'MENTIONED_ONLY', 'PARENT_POST_AUTHOR_ONLY', 'FOLLOWERS_ONLY'])
-
     // Build threads options with safe type conversion
     const builtThreadsOptions = threadsOptions ? {
       ...(threadsOptions.linkAttachment && { linkAttachment: threadsOptions.linkAttachment }),
       ...(threadsOptions.topicTag && { topicTag: threadsOptions.topicTag }),
-      ...(threadsOptions.replyControl && validReplyControls.has(threadsOptions.replyControl) && {
+      ...(threadsOptions.replyControl && VALID_REPLY_CONTROLS.has(threadsOptions.replyControl) && {
         replyControl: threadsOptions.replyControl as ThreadsReplyControl
       }),
       ...(threadsOptions.replyToId && { replyToId: threadsOptions.replyToId }),
@@ -359,7 +350,7 @@ async function publishToThreads(request: Request, user: User) {
     try {
       // Publish to Threads based on content type
       switch (finalContentType) {
-        case ContentType.CAROUSEL:
+        case CONTENT_TYPE.CAROUSEL:
           if (!carouselMediaItems || carouselMediaItems.length < 2) {
             throw new Error('At least 2 media items are required for carousel posts')
           }
@@ -379,7 +370,7 @@ async function publishToThreads(request: Request, user: User) {
           )
           break
 
-        case ContentType.IMAGE:
+        case CONTENT_TYPE.IMAGE:
           if (!imageUrl) {
             throw new Error('Image URL is required for image posts')
           }
@@ -396,7 +387,7 @@ async function publishToThreads(request: Request, user: User) {
           )
           break
 
-        case ContentType.VIDEO:
+        case CONTENT_TYPE.VIDEO:
           if (!videoUrl) {
             throw new Error('Video URL is required for video posts')
           }
@@ -413,7 +404,7 @@ async function publishToThreads(request: Request, user: User) {
           )
           break
 
-        case ContentType.TEXT:
+        case CONTENT_TYPE.TEXT:
         default:
           platformPostId = await publishTextPost(
             socialAccount.accessToken,
@@ -429,11 +420,11 @@ async function publishToThreads(request: Request, user: User) {
       // Validate platformPostId was returned
       if (!platformPostId) {
         throw new Error(
-          finalContentType === ContentType.CAROUSEL
+          finalContentType === 'CAROUSEL'
             ? 'Failed to create carousel containers. One or more media URLs may be invalid or inaccessible.'
-            : finalContentType === ContentType.IMAGE
+            : finalContentType === 'IMAGE'
             ? 'Failed to create image container. The image URL may be invalid or inaccessible.'
-            : finalContentType === ContentType.VIDEO
+            : finalContentType === 'VIDEO'
             ? 'Failed to create video container. The video URL may be invalid, inaccessible, or in an unsupported format.'
             : 'Failed to create post container. Please try again.'
         )
@@ -447,63 +438,66 @@ async function publishToThreads(request: Request, user: User) {
       )
 
       // Create publication record
-      const publication = postPublicationRepository.create({
-        postId: post.id,
-        socialAccountId: channelId,
-        platform: Platform.THREADS,
-        status: PostStatus.PUBLISHED,
-        platformPostId,
-        platformPostUrl,
-        publishedAt: new Date(),
+      const publication = await prisma.postPublication.create({
+        data: {
+          postId: post.id,
+          socialAccountId: channelId,
+          platform: PLATFORM.THREADS,
+          status: POST_STATUS.PUBLISHED,
+          platformPostId,
+          platformPostUrl,
+          publishedAt: new Date(),
+        },
       })
-      await postPublicationRepository.save(publication)
       publicationId = publication.id
 
       // Create scheduled comments if provided
       if (scheduledComments && scheduledComments.length > 0) {
         try {
-          await dataSource.transaction(async (transactionalEntityManager) => {
+          await prisma.$transaction(async (tx) => {
             for (const comment of scheduledComments) {
               // For immediate publish: use current time as base
               const commentScheduledAt = new Date(Date.now() + comment.delayMinutes * 60 * 1000)
 
               // Determine content type for comment
-              let commentContentType = ContentType.TEXT
+              let commentContentType: ContentType = CONTENT_TYPE.TEXT
               if (comment.imageUrl) {
-                commentContentType = ContentType.IMAGE
+                commentContentType = CONTENT_TYPE.IMAGE
               } else if (comment.videoUrl) {
-                commentContentType = ContentType.VIDEO
+                commentContentType = CONTENT_TYPE.VIDEO
               }
 
-              const childPost = postRepository.create({
-                userId: user.id,
-                parentPostId: post.id,
-                content: comment.content?.trim() || '',
-                status: PostStatus.SCHEDULED,
-                contentType: commentContentType,
-                isScheduled: true,
-                scheduledAt: commentScheduledAt,
-                socialAccountId: channelId,
-                commentDelayMinutes: comment.delayMinutes,
-                metadata: {
-                  threads: {
-                    replyToId: platformPostId,
+              const childPost = await tx.post.create({
+                data: {
+                  userId: user.id,
+                  parentPostId: post.id,
+                  content: comment.content?.trim() || '',
+                  status: POST_STATUS.SCHEDULED,
+                  contentType: commentContentType,
+                  isScheduled: true,
+                  scheduledAt: commentScheduledAt,
+                  socialAccountId: channelId,
+                  commentDelayMinutes: comment.delayMinutes,
+                  metadata: {
+                    threads: {
+                      replyToId: platformPostId,
+                    },
                   },
                 },
               })
-              await transactionalEntityManager.save(childPost)
 
               // Create media record if comment has media
               if (comment.imageUrl || comment.videoUrl) {
-                const media = mediaRepository.create({
-                  postId: childPost.id,
-                  type: commentContentType === ContentType.IMAGE ? MediaType.IMAGE : MediaType.VIDEO,
-                  url: comment.imageUrl || comment.videoUrl || '',
-                  altText: comment.altText || undefined,
-                  mimeType: commentContentType === ContentType.IMAGE ? 'image/jpeg' : 'video/mp4',
-                  order: 0,
+                await tx.media.create({
+                  data: {
+                    postId: childPost.id,
+                    type: commentContentType === CONTENT_TYPE.IMAGE ? MEDIA_TYPE.IMAGE : MEDIA_TYPE.VIDEO,
+                    url: comment.imageUrl || comment.videoUrl || '',
+                    altText: comment.altText || undefined,
+                    mimeType: commentContentType === CONTENT_TYPE.IMAGE ? 'image/jpeg' : 'video/mp4',
+                    order: 0,
+                  },
                 })
-                await transactionalEntityManager.save(media)
               }
 
               console.log(`Created scheduled comment ${childPost.id} for post ${post.id} with delay ${comment.delayMinutes} minutes`)
@@ -516,18 +510,21 @@ async function publishToThreads(request: Request, user: User) {
       }
 
       // Update existing child comments with parent's platform_post_id for reply
-      const childComments = await postRepository.find({
+      const childComments = await prisma.post.findMany({
         where: { parentPostId: post.id },
       })
 
       for (const child of childComments) {
         const currentMetadata = (child.metadata as { threads?: Record<string, unknown> }) || {}
-        await postRepository.update(child.id, {
-          metadata: {
-            ...currentMetadata,
-            threads: {
-              ...(currentMetadata.threads || {}),
-              replyToId: platformPostId,
+        await prisma.post.update({
+          where: { id: child.id },
+          data: {
+            metadata: {
+              ...currentMetadata,
+              threads: {
+                ...(currentMetadata.threads || {}),
+                replyToId: platformPostId,
+              },
             },
           },
         })
@@ -535,41 +532,43 @@ async function publishToThreads(request: Request, user: User) {
       }
 
       // Link uploaded media to post for reference
-      const uploadedMediaRepository = dataSource.getRepository(UploadedMedia)
-
-      if (finalContentType === ContentType.CAROUSEL && carouselMediaItems) {
+      if (finalContentType === CONTENT_TYPE.CAROUSEL && carouselMediaItems) {
         // Link all carousel media items to post
         for (const item of carouselMediaItems) {
-          const uploadedMedia = await uploadedMediaRepository.findOne({
+          const uploadedMedia = await prisma.uploadedMedia.findFirst({
             where: {
               userId: user.id,
               url: item.url,
-              status: 'active',
+              status: UPLOADED_MEDIA_STATUS.ACTIVE,
             },
           })
 
           if (uploadedMedia) {
             // Link to post (media remains in R2 for reuse)
-            uploadedMedia.postId = post.id
-            await uploadedMediaRepository.save(uploadedMedia)
+            await prisma.uploadedMedia.update({
+              where: { id: uploadedMedia.id },
+              data: { postId: post.id },
+            })
           }
         }
       } else {
         // Link single media to post
         const mediaUrl = imageUrl || videoUrl
         if (mediaUrl) {
-          const uploadedMedia = await uploadedMediaRepository.findOne({
+          const uploadedMedia = await prisma.uploadedMedia.findFirst({
             where: {
               userId: user.id,
               url: mediaUrl,
-              status: 'active',
+              status: UPLOADED_MEDIA_STATUS.ACTIVE,
             },
           })
 
           if (uploadedMedia) {
             // Link to post (media remains in R2 for reuse)
-            uploadedMedia.postId = post.id
-            await uploadedMediaRepository.save(uploadedMedia)
+            await prisma.uploadedMedia.update({
+              where: { id: uploadedMedia.id },
+              data: { postId: post.id },
+            })
           }
         }
       }
@@ -586,18 +585,22 @@ async function publishToThreads(request: Request, user: User) {
       } as unknown as ApiResponse<PublishResponse>)
     } catch (publishError) {
       // Update post status to failed
-      await postRepository.update(post.id, { status: PostStatus.FAILED })
+      await prisma.post.update({
+        where: { id: post.id },
+        data: { status: POST_STATUS.FAILED },
+      })
 
       // Create failed publication record
-      const publication = postPublicationRepository.create({
-        postId: post.id,
-        socialAccountId: channelId,
-        platform: Platform.THREADS,
-        status: PostStatus.FAILED,
-        errorMessage: publishError instanceof Error ? publishError.message : 'Unknown error',
-        failedAt: new Date(),
+      await prisma.postPublication.create({
+        data: {
+          postId: post.id,
+          socialAccountId: channelId,
+          platform: PLATFORM.THREADS,
+          status: POST_STATUS.FAILED,
+          errorMessage: publishError instanceof Error ? publishError.message : 'Unknown error',
+          failedAt: new Date(),
+        },
       })
-      await postPublicationRepository.save(publication)
 
       throw publishError
     }

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import Link from 'next/link'
+import { POST_STATUS } from '@/lib/constants'
 
 interface DashboardStats {
   totalPosts: number
@@ -39,7 +40,7 @@ export default function DashboardPage() {
 
       setStats({
         totalPosts: postsData.data?.total || 0,
-        scheduledPosts: postsData.data?.posts?.filter((p: { status: string }) => p.status === 'SCHEDULED').length || 0,
+        scheduledPosts: postsData.data?.posts?.filter((p: { status: string }) => p.status === POST_STATUS.SCHEDULED).length || 0,
         totalChannels: channelsData.data?.length || 0,
         totalMedia: mediaData.data?.total || 0,
       })

@@ -1,13 +1,12 @@
 import { NextResponse } from 'next/server'
 import { withAuth } from '@/lib/auth/middleware'
-import { getConnection } from '@/lib/db/connection'
-import { User } from '@/database/entities/User.entity'
-import { UploadedMedia } from '@/database/entities/UploadedMedia.entity'
-import { MediaType } from '@/database/entities/enums'
+import { prisma } from '@/lib/db/connection'
 import type { ApiResponse } from '@/lib/types'
 import { generatePresignedUrl, isR2Configured } from '@/lib/services/r2-presigned.service'
+import { MEDIA_TYPE, UPLOADED_MEDIA_STATUS, MEDIA_PROXY } from '@/lib/constants'
+import { UploadedMediaType } from '@prisma/client'
 
-const MAX_FILE_SIZE = 50 * 1024 * 1024 // 50MB for Threads API
+const MAX_FILE_SIZE = MEDIA_PROXY.MAX_VIDEO_SIZE
 const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp', 'image/avif', 'image/bmp']
 const ALLOWED_VIDEO_TYPES = ['video/mp4', 'video/webm', 'video/quicktime', 'video/x-msvideo', 'video/x-matroska']
 
@@ -21,7 +20,7 @@ interface ProxyUploadResponse {
  * Upload a file to R2 via server proxy (no CORS issues)
  * Server uploads to R2 and returns the public URL
  */
-async function proxyUpload(request: Request, user: User) {
+async function proxyUpload(request: Request, user: any) {
   try {
     const formData = await request.formData()
     const file = formData.get('file')
@@ -116,23 +115,21 @@ async function proxyUpload(request: Request, user: User) {
 
     // Determine media type
     const isImage = ALLOWED_IMAGE_TYPES.includes(file.type)
-    const mediaType = isImage ? MediaType.IMAGE : MediaType.VIDEO
+    const mediaType = isImage ? UploadedMediaType.IMAGE : UploadedMediaType.VIDEO
 
     // Save to database
-    const dataSource = await getConnection()
-    const uploadedMediaRepository = dataSource.getRepository(UploadedMedia)
-
-    const uploadedMedia = uploadedMediaRepository.create({
-      userId: user.id,
-      type: mediaType,
-      filename: file.name,
-      url: publicUrl,
-      r2Key: key,
-      mimeType: file.type,
-      fileSize: file.size,
-      status: 'active',
+    await prisma.uploadedMedia.create({
+      data: {
+        userId: user.id,
+        type: mediaType,
+        filename: file.name,
+        url: publicUrl,
+        r2Key: key,
+        mimeType: file.type,
+        fileSize: file.size,
+        status: UPLOADED_MEDIA_STATUS.ACTIVE,
+      },
     })
-    await uploadedMediaRepository.save(uploadedMedia)
 
     return NextResponse.json({
       data: {

@@ -1,3 +1,5 @@
+import { TIMEZONE } from '@/lib/constants'
+
 /**
  * Timezone utilities for handling UTC+7 (Indochina Time) conversions
  *
@@ -5,7 +7,7 @@
  * All times are stored in UTC in the database.
  */
 
-const UTC_PLUS_7_OFFSET_MS = 7 * 60 * 60 * 1000
+const UTC_PLUS_7_OFFSET_MS = TIMEZONE.UTC7_OFFSET_HOURS * 60 * 60 * 1000
 
 /**
  * Convert UTC+7 datetime-local input string to UTC Date for storage

@@ -1,15 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getConnection } from '@/lib/db/connection'
-import { SocialAccount } from '@/database/entities/SocialAccount.entity'
-import { User } from '@/database/entities/User.entity'
+import { prisma } from '@/lib/db/connection'
 import { withAuth } from '@/lib/auth/middleware'
-import { Platform, AccountStatus } from '@/database/entities/enums'
-import { Not } from 'typeorm'
 import type { ApiResponse } from '@/lib/types'
+import { ACCOUNT_STATUS } from '@/lib/constants'
 
 interface ChannelResponse {
   id: string
-  platform: Platform
+  platform: string
   username: string
   displayName?: string
   avatar?: string
@@ -27,25 +24,22 @@ interface ChannelResponse {
  * GET /api/channels
  * Get all connected social accounts for the authenticated user
  */
-async function getChannels(_request: Request, user: User) {
+async function getChannels(_request: Request, user: any) {
   try {
-    const dataSource = await getConnection()
-    const socialAccountRepository = dataSource.getRepository(SocialAccount)
-
-    const accounts = await socialAccountRepository.find({
+    const accounts = await prisma.socialAccount.findMany({
       where: {
         userId: user.id,
-        status: Not(AccountStatus.REVOKED),
+        status: { not: ACCOUNT_STATUS.REVOKED },
       },
-      order: { createdAt: 'DESC' },
+      orderBy: { createdAt: 'desc' },
     })
 
     const channels: ChannelResponse[] = accounts.map((account) => ({
       id: account.id,
       platform: account.platform,
       username: account.username,
-      displayName: account.displayName,
-      avatar: account.avatar,
+      displayName: account.displayName ?? undefined,
+      avatar: account.avatar ?? undefined,
       status: account.status,
       health: account.health,
       followersCount: account.followersCount,

@@ -1,7 +1,7 @@
 # Database Schema Documentation
 
 ## Overview
-This document describes the PostgreSQL database schema for the Social Media Management Platform (SMMP) using TypeORM entities.
+This document describes the PostgreSQL database schema for the Social Media Management Platform (SMMP) using Prisma ORM.
 
 ## Entity Relationship Diagram
 
@@ -440,7 +440,7 @@ const posts = await postRepository
 
 1. **Token Storage:** Access and refresh tokens should be encrypted at rest
 2. **Password Hashing:** Use bcrypt or argon2 for password hashing
-3. **SQL Injection:** TypeORM parameterized queries prevent SQL injection
+3. **SQL Injection:** Prisma parameterized queries prevent SQL injection
 4. **Row-Level Security:** Consider implementing RLS for multi-tenant scenarios
 5. **Audit Logging:** Add triggers to track sensitive data changes
 

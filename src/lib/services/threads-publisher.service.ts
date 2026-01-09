@@ -18,7 +18,7 @@ import type {
 } from '@/lib/types/threads'
 import { ThreadsMediaType } from '@/lib/types/threads'
 import { needsProxy, proxyMediaToR2 } from './media-proxy.service'
-import { THREADS_POLLING, CAROUSEL } from '@/lib/constants'
+import { THREADS_POLLING, CAROUSEL, ACCOUNT_STATUS, THREADS_CONTAINER_STATUS } from '@/lib/constants'
 
 /**
  * Prepare media URL for Threads API
@@ -79,12 +79,12 @@ async function waitForContainerReady(
   while (Date.now() - startTime < maxWaitMs) {
     const status = await getContainerStatus(accessToken, containerId)
 
-    if (status.status === 'FINISHED' || status.status === 'PUBLISHED') {
+    if (status.status === THREADS_CONTAINER_STATUS.FINISHED || status.status === THREADS_CONTAINER_STATUS.PUBLISHED) {
       console.log(`[Container ${containerId}] Ready with status: ${status.status}`)
       return
     }
 
-    if (status.status === 'ERROR' || status.status === 'EXPIRED') {
+    if (status.status === THREADS_CONTAINER_STATUS.ERROR || status.status === THREADS_CONTAINER_STATUS.EXPIRED) {
       consecutiveFailures++
       const errorSuffix = formatErrorDetails(status)
       console.log(`[Container ${containerId}] Failure ${consecutiveFailures}/${THREADS_POLLING.MAX_CONSECUTIVE_FAILURES}: ${status.status}${errorSuffix}`)

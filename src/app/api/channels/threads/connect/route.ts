@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server'
-import { User } from '@/database/entities/User.entity'
 import { withAuth } from '@/lib/auth/middleware'
 import { getAuthorizationUrl } from '@/lib/services/threads.service'
 import { createState } from '@/lib/services/oauth-state.service'
@@ -13,7 +12,7 @@ interface ConnectUrlResponse {
  * GET /api/channels/threads/connect
  * Get the Threads OAuth authorization URL
  */
-async function getConnectUrl(_request: Request, user: User) {
+async function getConnectUrl(_request: Request, user: any) {
   try {
     // Generate and store state token for CSRF protection
     const state = createState(user.id)

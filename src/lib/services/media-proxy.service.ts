@@ -4,11 +4,10 @@
  * This is needed because Threads API cannot directly fetch from these protected URLs
  */
 
-import { getConnection } from '@/lib/db/connection'
-import { UploadedMedia } from '@/database/entities/UploadedMedia.entity'
-import { MediaType } from '@/database/entities/enums'
+import { prisma } from '@/lib/db/connection'
 import { generatePresignedUrl, getPublicUrlForKey } from '@/lib/services/r2-presigned.service'
-import { MEDIA_PROXY } from '@/lib/constants'
+import { MEDIA_PROXY, UPLOADED_MEDIA_STATUS, MEDIA_TYPE } from '@/lib/constants'
+import { UploadedMediaStatus, UploadedMediaType } from '@prisma/client'
 
 export interface ProxyResult {
   url: string
@@ -197,18 +196,15 @@ async function findCachedProxy(
   userId: string,
   originalUrl: string
 ): Promise<{ url: string; r2Key: string; regenerated?: boolean } | null> {
-  const dataSource = await getConnection()
-  const uploadedMediaRepo = dataSource.getRepository(UploadedMedia)
-
   // Find recent active media for this user
-  const existingList = await uploadedMediaRepo.find({
+  const existingList = await prisma.uploadedMedia.findMany({
     where: {
       userId,
-      status: 'active',
+      status: UPLOADED_MEDIA_STATUS.ACTIVE,
     },
     take: 100,
-    order: {
-      createdAt: 'DESC',
+    orderBy: {
+      createdAt: 'desc',
     },
   })
 
@@ -229,20 +225,28 @@ async function findCachedProxy(
   if (!expiresAt) {
     console.log(`[MediaProxy] Legacy record without presigned URL expiration for ${originalUrl}, regenerating`)
 
+    if (!cached.r2Key) {
+      return null
+    }
+
     const presignedResult = await generatePresignedUrl(
       cached.r2Key,
       MEDIA_PROXY.PRESIGNED_GET_URL_EXPIRY_SECONDS,
       'GET'
     )
 
-    cached.url = presignedResult.url
-    cached.metadata = {
-      ...metadata,
-      presignedUrlExpiresAt: presignedResult.expiresAt.toISOString(),
-    }
-    await uploadedMediaRepo.save(cached)
+    const updated = await prisma.uploadedMedia.update({
+      where: { id: cached.id },
+      data: {
+        url: presignedResult.url,
+        metadata: {
+          ...metadata,
+          presignedUrlExpiresAt: presignedResult.expiresAt.toISOString(),
+        },
+      },
+    })
 
-    return { url: presignedResult.url, r2Key: cached.r2Key, regenerated: true }
+    return { url: updated.url, r2Key: updated.r2Key || '', regenerated: true }
   }
 
   const expirationDate = new Date(expiresAt)
@@ -251,20 +255,28 @@ async function findCachedProxy(
   if (isNaN(expirationDate.getTime())) {
     console.warn(`[MediaProxy] Invalid expiration date in metadata: ${expiresAt}, regenerating`)
 
+    if (!cached.r2Key) {
+      return null
+    }
+
     const presignedResult = await generatePresignedUrl(
       cached.r2Key,
       MEDIA_PROXY.PRESIGNED_GET_URL_EXPIRY_SECONDS,
       'GET'
     )
 
-    cached.url = presignedResult.url
-    cached.metadata = {
-      ...metadata,
-      presignedUrlExpiresAt: presignedResult.expiresAt.toISOString(),
-    }
-    await uploadedMediaRepo.save(cached)
+    const updated = await prisma.uploadedMedia.update({
+      where: { id: cached.id },
+      data: {
+        url: presignedResult.url,
+        metadata: {
+          ...metadata,
+          presignedUrlExpiresAt: presignedResult.expiresAt.toISOString(),
+        },
+      },
+    })
 
-    return { url: presignedResult.url, r2Key: cached.r2Key, regenerated: true }
+    return { url: updated.url, r2Key: updated.r2Key || '', regenerated: true }
   }
 
   const now = new Date()
@@ -279,12 +291,17 @@ async function findCachedProxy(
     // Recently regenerated, return existing URL even if expired
     // (another request is handling regeneration)
     console.log(`[MediaProxy] Using recently regenerated URL for ${originalUrl}`)
-    return { url: cached.url, r2Key: cached.r2Key }
+    return { url: cached.url, r2Key: cached.r2Key || '' }
   }
 
   // Check if presigned URL has expired (regenerate if needed)
   if (expirationDate.getTime() - now.getTime() < MEDIA_PROXY.URL_REGENERATION_BUFFER_MS) {
     console.log(`[MediaProxy] Regenerating expired presigned URL for ${originalUrl}`)
+
+    if (!cached.r2Key) {
+      console.error(`[MediaProxy] No R2 key found for ${originalUrl}, cannot regenerate`)
+      return { url: cached.url, r2Key: '', regenerated: false }
+    }
 
     const presignedResult = await generatePresignedUrl(
       cached.r2Key,
@@ -292,19 +309,23 @@ async function findCachedProxy(
       'GET'
     )
 
-    cached.url = presignedResult.url
-    cached.metadata = {
-      ...metadata,
-      presignedUrlExpiresAt: presignedResult.expiresAt.toISOString(),
-      lastRegeneratedAt: now.toISOString(),
-    }
-    await uploadedMediaRepo.save(cached)
+    const updated = await prisma.uploadedMedia.update({
+      where: { id: cached.id },
+      data: {
+        url: presignedResult.url,
+        metadata: {
+          ...metadata,
+          presignedUrlExpiresAt: presignedResult.expiresAt.toISOString(),
+          lastRegeneratedAt: now.toISOString(),
+        },
+      },
+    })
 
     console.log(`[MediaProxy] Regenerated presigned URL for ${originalUrl}, valid until ${presignedResult.expiresAt.toISOString()}`)
-    return { url: presignedResult.url, r2Key: cached.r2Key, regenerated: true }
+    return { url: updated.url, r2Key: updated.r2Key || '', regenerated: true }
   }
 
-  return { url: cached.url, r2Key: cached.r2Key }
+  return { url: cached.url, r2Key: cached.r2Key || '' }
 }
 
 /**
@@ -319,7 +340,7 @@ export async function proxyMediaToR2(
   const cached = await findCachedProxy(userId, originalUrl)
   if (cached) {
     console.log(`[MediaProxy] Found cached proxy for ${originalUrl}${cached.regenerated ? ' (regenerated)' : ''}`)
-    return { url: cached.url, r2Key: cached.r2Key }
+    return { url: cached.url, r2Key: cached.r2Key || '' }
   }
 
   console.log(`[MediaProxy] Downloading from ${originalUrl}`)
@@ -333,7 +354,7 @@ export async function proxyMediaToR2(
 
     // Determine media type
     const isImage = mimeType.startsWith('image/')
-    const mediaType = isImage ? MediaType.IMAGE : MediaType.VIDEO
+    const mediaType = isImage ? UploadedMediaType.IMAGE : UploadedMediaType.VIDEO
 
     // Generate R2 key
     const r2Key = generateR2Key(userId, originalUrl, mimeType)
@@ -379,9 +400,6 @@ export async function proxyMediaToR2(
     const filename = pathname.split('/').pop() || `proxied-media.${mimeType.split('/')[1]}`
 
     // Save to database - store presigned URL that Threads API can access
-    const dataSource = await getConnection()
-    const uploadedMediaRepo = dataSource.getRepository(UploadedMedia)
-
     const metadata: ProxyMediaMetadata = {
       originalUrl,
       proxiedAt: new Date().toISOString(),
@@ -389,18 +407,19 @@ export async function proxyMediaToR2(
       publicUrl, // Keep public URL for reference
     }
 
-    const uploadedMedia = uploadedMediaRepo.create({
-      userId,
-      type: mediaType,
-      filename,
-      url: threadsUrl, // Store presigned GET URL for Threads API
-      r2Key,
-      mimeType,
-      fileSize: buffer.byteLength,
-      status: 'active',
-      metadata,
+    const uploadedMedia = await prisma.uploadedMedia.create({
+      data: {
+        userId,
+        type: mediaType,
+        filename,
+        url: threadsUrl, // Store presigned GET URL for Threads API
+        r2Key,
+        mimeType,
+        fileSize: buffer.byteLength,
+        status: UPLOADED_MEDIA_STATUS.ACTIVE,
+        metadata: metadata as any,
+      },
     })
-    await uploadedMediaRepo.save(uploadedMedia)
 
     console.log(`[MediaProxy] Proxy complete: ${originalUrl} -> ${threadsUrl}`)
     // Return presigned URL for Threads API to fetch (valid for 7 days)

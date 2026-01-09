@@ -1,10 +1,6 @@
 import { NextResponse } from 'next/server'
-import { getConnection } from '@/lib/db/connection'
-import { Post } from '@/database/entities/Post.entity'
-import { Media } from '@/database/entities/Media.entity'
-import { User } from '@/database/entities/User.entity'
+import { prisma } from '@/lib/db/connection'
 import { withAuth } from '@/lib/auth/middleware'
-import { PostStatus, ContentType, MediaType } from '@/database/entities/enums'
 import type { ApiResponse } from '@/lib/types'
 import { detectMimeTypeFromUrl, validateMediaUrl, getOwnHostname } from '@/lib/utils/content-parser'
 import type {
@@ -14,18 +10,22 @@ import type {
   GifAttachment,
   ThreadsReplyControl,
 } from '@/lib/types/threads'
+import type { ContentType } from '@prisma/client'
 import {
   SCHEDULED_COMMENTS,
   CAROUSEL,
   PAGINATION,
   TIMEZONE,
+  POST_STATUS,
+  CONTENT_TYPE,
+  MEDIA_TYPE,
 } from '@/lib/constants'
 
 interface PostListItem {
   id: string
   content: string
-  status: PostStatus
-  contentType: ContentType
+  status: string
+  contentType: string
   scheduledAt: Date | null
   publishedAt: Date | null
   createdAt: string
@@ -33,7 +33,7 @@ interface PostListItem {
   socialAccountId?: string | null
   media?: Array<{
     id: string
-    type: MediaType
+    type: string
     url: string
     thumbnailUrl?: string
     altText?: string
@@ -49,7 +49,7 @@ interface PostListItem {
   childComments?: Array<{
     id: string
     content: string
-    status: PostStatus
+    status: string
     scheduledAt: Date | null
     commentDelayMinutes: number | null
   }>
@@ -70,7 +70,7 @@ interface ScheduledComment {
 
 interface CreatePostRequest {
   content: string
-  contentType?: ContentType
+  contentType?: string
   imageUrl?: string
   videoUrl?: string
   altText?: string
@@ -102,18 +102,15 @@ interface CreatePostRequest {
  * GET /api/posts
  * List posts with optional filtering
  */
-async function getPosts(request: Request, user: User) {
+async function getPosts(request: Request, user: any) {
   try {
     const { searchParams } = new URL(request.url)
-    const status = searchParams.get('status') as PostStatus | null
+    const status = searchParams.get('status')
     const scheduled = searchParams.get('scheduled') === 'true'
     const limit = parseInt(searchParams.get('limit') ?? String(PAGINATION.DEFAULT_LIMIT), 10)
     const offset = parseInt(searchParams.get('offset') ?? String(PAGINATION.DEFAULT_OFFSET), 10)
 
-    const dataSource = await getConnection()
-    const postRepository = dataSource.getRepository(Post)
-
-    const where: { userId: string; status?: PostStatus; isScheduled?: boolean } = {
+    const where: Record<string, unknown> = {
       userId: user.id,
     }
 
@@ -125,15 +122,22 @@ async function getPosts(request: Request, user: User) {
       where.isScheduled = true
     }
 
-    const [posts, total] = await postRepository.findAndCount({
-      where,
-      relations: ['publications', 'media', 'childPosts'],
-      order: {
-        createdAt: 'DESC',
-      },
-      take: limit,
-      skip: offset,
-    })
+    const [posts, total] = await Promise.all([
+      prisma.post.findMany({
+        where,
+        include: {
+          publications: true,
+          media: true,
+          childPosts: true,
+        },
+        orderBy: {
+          createdAt: 'desc',
+        },
+        take: limit,
+        skip: offset,
+      }),
+      prisma.post.count({ where }),
+    ])
 
     const response: PostsResponse = {
       posts: posts.map((post) => ({
@@ -195,7 +199,7 @@ async function getPosts(request: Request, user: User) {
  * POST /api/posts
  * Create a new post with optional media attachment
  */
-async function createPost(request: Request, user: User) {
+async function createPost(request: Request, user: any) {
   try {
     const body = await request.json() as CreatePostRequest
     const { content, contentType, imageUrl, videoUrl, altText, scheduledFor, socialAccountId, parentPostId, carouselMediaItems, threadsOptions, scheduledComments } = body
@@ -213,17 +217,17 @@ async function createPost(request: Request, user: User) {
     }
 
     // Determine content type
-    let finalContentType = contentType || ContentType.TEXT
+    let finalContentType: ContentType = (contentType || CONTENT_TYPE.TEXT) as ContentType
     if (carouselMediaItems && carouselMediaItems.length > 0) {
-      finalContentType = ContentType.CAROUSEL
+      finalContentType = CONTENT_TYPE.CAROUSEL as ContentType
     } else if (imageUrl) {
-      finalContentType = ContentType.IMAGE
+      finalContentType = CONTENT_TYPE.IMAGE as ContentType
     } else if (videoUrl) {
-      finalContentType = ContentType.VIDEO
+      finalContentType = CONTENT_TYPE.VIDEO as ContentType
     }
 
     // Validate media URL matches content type
-    if (finalContentType === ContentType.IMAGE && !imageUrl) {
+    if (finalContentType === CONTENT_TYPE.IMAGE && !imageUrl) {
       return NextResponse.json(
         {
           data: null,
@@ -235,7 +239,7 @@ async function createPost(request: Request, user: User) {
       )
     }
 
-    if (finalContentType === ContentType.VIDEO && !videoUrl) {
+    if (finalContentType === CONTENT_TYPE.VIDEO && !videoUrl) {
       return NextResponse.json(
         {
           data: null,
@@ -247,7 +251,7 @@ async function createPost(request: Request, user: User) {
       )
     }
 
-    if (finalContentType === ContentType.CAROUSEL && (!carouselMediaItems || carouselMediaItems.length < CAROUSEL.MIN_ITEMS)) {
+    if (finalContentType === CONTENT_TYPE.CAROUSEL && (!carouselMediaItems || carouselMediaItems.length < CAROUSEL.MIN_ITEMS)) {
       return NextResponse.json(
         {
           data: null,
@@ -259,7 +263,7 @@ async function createPost(request: Request, user: User) {
       )
     }
 
-    if (finalContentType === ContentType.CAROUSEL && carouselMediaItems && carouselMediaItems.length > CAROUSEL.MAX_ITEMS) {
+    if (finalContentType === CONTENT_TYPE.CAROUSEL && carouselMediaItems && carouselMediaItems.length > CAROUSEL.MAX_ITEMS) {
       return NextResponse.json(
         {
           data: null,
@@ -454,10 +458,6 @@ async function createPost(request: Request, user: User) {
       }
     }
 
-    const dataSource = await getConnection()
-    const postRepository = dataSource.getRepository(Post)
-    const mediaRepository = dataSource.getRepository(Media)
-
     // Convert UTC+7 to UTC for storage
     // datetime-local input returns time without timezone, user enters in UTC+7
     // We need to subtract TIMEZONE.UTC7_OFFSET_HOURS hours to get UTC time
@@ -469,24 +469,24 @@ async function createPost(request: Request, user: User) {
     }
 
     // Create post
-    const post = postRepository.create({
-      userId: user.id,
-      content: content?.trim() || '',
-      status: scheduledFor ? PostStatus.SCHEDULED : PostStatus.DRAFT,
-      contentType: finalContentType,
-      isScheduled: !!scheduledFor,
-      scheduledAt: scheduledAtUTC,
-      socialAccountId: socialAccountId || null,
-      parentPostId: parentPostId || null,
-      metadata: threadsOptions ? { threads: threadsOptions } : undefined,
+    const savedPost = await prisma.post.create({
+      data: {
+        userId: user.id,
+        content: content?.trim() || '',
+        status: scheduledFor ? POST_STATUS.SCHEDULED : POST_STATUS.DRAFT,
+        contentType: finalContentType,
+        isScheduled: !!scheduledFor,
+        scheduledAt: scheduledAtUTC,
+        socialAccountId: socialAccountId || null,
+        parentPostId: parentPostId || null,
+        metadata: threadsOptions ? { threads: threadsOptions } as any : undefined,
+      },
     })
-
-    const savedPost = await postRepository.save(post)
 
     // Create child posts for scheduled comments in a transaction
     if (scheduledComments && scheduledComments.length > 0) {
       try {
-        await dataSource.transaction(async (transactionalEntityManager) => {
+        await prisma.$transaction(async (tx) => {
           for (const comment of scheduledComments) {
             // For scheduled posts: use parent's scheduled time as base
             // For immediate posts: use current time as base
@@ -494,41 +494,42 @@ async function createPost(request: Request, user: User) {
             const commentScheduledAt = new Date(baseTime + comment.delayMinutes * 60 * 1000)
 
             // Determine content type for comment
-            let commentContentType = ContentType.TEXT
+            let commentContentType: ContentType = CONTENT_TYPE.TEXT as ContentType
             if (comment.imageUrl) {
-              commentContentType = ContentType.IMAGE
+              commentContentType = CONTENT_TYPE.IMAGE as ContentType
             } else if (comment.videoUrl) {
-              commentContentType = ContentType.VIDEO
+              commentContentType = CONTENT_TYPE.VIDEO as ContentType
             }
 
-            const childPost = postRepository.create({
-              userId: user.id,
-              parentPostId: savedPost.id,
-              content: comment.content?.trim() || '',
-              status: PostStatus.SCHEDULED,
-              contentType: commentContentType,
-              isScheduled: true,
-              scheduledAt: commentScheduledAt,
-              socialAccountId: socialAccountId || null,
-              commentDelayMinutes: comment.delayMinutes,
-              metadata: {
-                threads: {
+            const childPost = await tx.post.create({
+              data: {
+                userId: user.id,
+                parentPostId: savedPost.id,
+                content: comment.content?.trim() || '',
+                status: POST_STATUS.SCHEDULED,
+                contentType: commentContentType,
+                isScheduled: true,
+                scheduledAt: commentScheduledAt,
+                socialAccountId: socialAccountId || null,
+                commentDelayMinutes: comment.delayMinutes,
+                metadata: {
+                  threads: {},
                 },
               },
             })
-            await transactionalEntityManager.save(childPost)
 
             // Create media record if comment has media
             if (comment.imageUrl || comment.videoUrl) {
-              const media = mediaRepository.create({
-                postId: childPost.id,
-                type: commentContentType === ContentType.IMAGE ? MediaType.IMAGE : MediaType.VIDEO,
-                url: comment.imageUrl || comment.videoUrl || '',
-                altText: comment.altText || undefined,
-                mimeType: commentContentType === ContentType.IMAGE ? 'image/jpeg' : 'video/mp4',
-                order: 0,
+              await tx.media.create({
+                data: {
+                  postId: childPost.id,
+                  type: commentContentType === CONTENT_TYPE.IMAGE ? MEDIA_TYPE.IMAGE : MEDIA_TYPE.VIDEO,
+                  url: comment.imageUrl || comment.videoUrl || '',
+                  altText: comment.altText || undefined,
+                  mimeType: commentContentType === CONTENT_TYPE.IMAGE ? 'image/jpeg' : 'video/mp4',
+                  order: 0,
+                },
               })
-              await transactionalEntityManager.save(media)
             }
 
             console.log(`Created scheduled comment ${childPost.id} for post ${savedPost.id} with delay ${comment.delayMinutes} minutes`)
@@ -536,7 +537,7 @@ async function createPost(request: Request, user: User) {
         })
       } catch (transactionError) {
         // Cleanup: Delete the parent post if transaction fails
-        await postRepository.delete(savedPost.id)
+        await prisma.post.delete({ where: { id: savedPost.id } })
         console.error(`Failed to create scheduled comments for post ${savedPost.id}, cleaned up parent post`)
 
         return NextResponse.json(
@@ -556,21 +557,22 @@ async function createPost(request: Request, user: User) {
     // Create media record(s) if image/video URL(s) provided
     let mediaItems: PostListItem['media'] = []
 
-    if (finalContentType === ContentType.CAROUSEL && carouselMediaItems) {
+    if (finalContentType === CONTENT_TYPE.CAROUSEL && carouselMediaItems) {
       // Save all carousel media items
       for (let i = 0; i < carouselMediaItems.length; i++) {
         const item = carouselMediaItems[i]
         const detectedMimeType = detectMimeTypeFromUrl(item.url)
 
-        const media = mediaRepository.create({
-          postId: savedPost.id,
-          type: item.type === 'image' ? MediaType.IMAGE : MediaType.VIDEO,
-          url: item.url,
-          altText: item.altText || undefined,
-          mimeType: detectedMimeType || (item.type === 'image' ? 'image/jpeg' : 'video/mp4'),
-          order: i,
+        const media = await prisma.media.create({
+          data: {
+            postId: savedPost.id,
+            type: item.type === 'image' ? MEDIA_TYPE.IMAGE : MEDIA_TYPE.VIDEO,
+            url: item.url,
+            altText: item.altText || undefined,
+            mimeType: detectedMimeType || (item.type === 'image' ? 'image/jpeg' : 'video/mp4'),
+            order: i,
+          },
         })
-        await mediaRepository.save(media)
 
         mediaItems.push({
           id: media.id,
@@ -585,15 +587,16 @@ async function createPost(request: Request, user: User) {
       const mediaUrl = imageUrl || videoUrl || ''
       const detectedMimeType = detectMimeTypeFromUrl(mediaUrl)
 
-      const media = mediaRepository.create({
-        postId: savedPost.id,
-        type: finalContentType === ContentType.IMAGE ? MediaType.IMAGE : MediaType.VIDEO,
-        url: mediaUrl,
-        altText: altText || undefined,
-        mimeType: detectedMimeType || (finalContentType === ContentType.IMAGE ? 'image/jpeg' : 'video/mp4'),
-        order: 0,
+      const media = await prisma.media.create({
+        data: {
+          postId: savedPost.id,
+          type: finalContentType === CONTENT_TYPE.IMAGE ? MEDIA_TYPE.IMAGE : MEDIA_TYPE.VIDEO,
+          url: mediaUrl,
+          altText: altText || undefined,
+          mimeType: detectedMimeType || (finalContentType === CONTENT_TYPE.IMAGE ? 'image/jpeg' : 'video/mp4'),
+          order: 0,
+        },
       })
-      await mediaRepository.save(media)
 
       mediaItems = [{
         id: media.id,

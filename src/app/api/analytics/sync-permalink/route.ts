@@ -1,11 +1,8 @@
 import { NextResponse } from 'next/server'
-import { getConnection } from '@/lib/db/connection'
-import { PostPublication } from '@/database/entities/PostPublication.entity'
-import { SocialAccount } from '@/database/entities/SocialAccount.entity'
-import { User } from '@/database/entities/User.entity'
+import { prisma } from '@/lib/db/connection'
 import { withAuth } from '@/lib/auth/middleware'
+import { PLATFORM, POST_STATUS } from '@/lib/constants'
 import { getOrBuildThreadsPostUrl } from '@/lib/services/threads.service'
-import { Platform, PostStatus } from '@/database/entities/enums'
 import type { ApiResponse } from '@/lib/types'
 
 interface SyncResponse {
@@ -17,29 +14,29 @@ interface SyncResponse {
  * POST /api/analytics/sync-permalink
  * Sync permalinks for all published Threads posts
  */
-async function syncPermalinks(request: Request, user: User) {
+async function syncPermalinks(request: Request, user: any) {
   try {
-    const dataSource = await getConnection()
-    const postPublicationRepository = dataSource.getRepository(PostPublication)
-    const socialAccountRepository = dataSource.getRepository(SocialAccount)
-
     // Find all Threads publications that don't have a permalink or have an old format URL
-    const publications = await postPublicationRepository
-      .createQueryBuilder('publication')
-      .leftJoinAndSelect('publication.socialAccount', 'socialAccount')
-      .where('publication.platform = :platform', { platform: Platform.THREADS })
-      .andWhere('publication.status = :status', { status: PostStatus.PUBLISHED })
-      .andWhere('(publication.platformPostUrl IS NULL OR publication.platformPostUrl LIKE :oldPattern)', {
-        oldPattern: 'https://threads.net/%',
-      })
-      .andWhere('publication.platformPostId IS NOT NULL')
-      .getMany()
+    const publications = await prisma.postPublication.findMany({
+      where: {
+        platform: PLATFORM.THREADS,
+        status: POST_STATUS.PUBLISHED,
+        platformPostId: { not: null },
+        OR: [
+          { platformPostUrl: null },
+          { platformPostUrl: { contains: 'https://threads.net/' } },
+        ],
+      },
+      include: {
+        socialAccount: true,
+      },
+    })
 
     let updated = 0
     let failed = 0
 
     for (const publication of publications) {
-      if (!publication.socialAccount) {
+      if (!publication.socialAccount || !publication.socialAccount.accessToken) {
         failed++
         continue
       }
@@ -47,12 +44,14 @@ async function syncPermalinks(request: Request, user: User) {
       try {
         const permalink = await getOrBuildThreadsPostUrl(
           publication.socialAccount.accessToken,
-          publication.platformPostId,
+          publication.platformPostId!,
           publication.socialAccount.username
         )
 
-        publication.platformPostUrl = permalink
-        await postPublicationRepository.save(publication)
+        await prisma.postPublication.update({
+          where: { id: publication.id },
+          data: { platformPostUrl: permalink },
+        })
         updated++
       } catch (error) {
         console.error(`Failed to sync permalink for publication ${publication.id}:`, error)

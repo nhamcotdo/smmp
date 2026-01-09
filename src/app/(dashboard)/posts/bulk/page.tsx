@@ -6,7 +6,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import Link from 'next/link'
 import { getChannels } from '@/lib/api/channels'
 import type { Channel } from '@/lib/api/channels'
-import { Platform } from '@/database/entities/enums'
+import { PLATFORM, ACCOUNT_STATUS } from '@/lib/constants'
 
 import { BulkPostForm } from './components/BulkPostForm'
 import { BulkUrlInput } from './components/BulkUrlInput'
@@ -54,7 +54,7 @@ export default function BulkCreatePostPage() {
     if (!isLoading && isAuthenticated) {
       getChannels()
         .then((data) => {
-          setChannels(data.filter((ch) => ch.platform === Platform.THREADS && ch.status === 'active'))
+          setChannels(data.filter((ch) => ch.platform === PLATFORM.THREADS && ch.status === ACCOUNT_STATUS.ACTIVE))
           setIsLoadingChannels(false)
         })
         .catch((err) => {
@@ -212,7 +212,7 @@ export default function BulkCreatePostPage() {
     )
   }
 
-  const threadsChannels = channels.filter((ch) => ch.platform === Platform.THREADS)
+  const threadsChannels = channels.filter((ch) => ch.platform === PLATFORM.THREADS)
 
   return (
     <div className="space-y-6">

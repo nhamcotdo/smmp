@@ -1,10 +1,9 @@
 import { NextResponse } from 'next/server'
-import { getConnection } from '@/lib/db/connection'
+import { prisma } from '@/lib/db/connection'
 import { withAuth } from '@/lib/auth/middleware'
-import { User } from '@/database/entities/User.entity'
-import { UploadedMedia } from '@/database/entities/UploadedMedia.entity'
 import type { ApiResponse } from '@/lib/types'
 import { deleteFromR2 } from '@/lib/services/r2-presigned.service'
+import { UPLOADED_MEDIA_STATUS } from '@/lib/constants'
 
 interface DeleteResponse {
   deleted: boolean
@@ -16,7 +15,7 @@ interface DeleteResponse {
  */
 async function deleteMedia(
   request: Request,
-  user: User,
+  user: any,
   context?: { params: Promise<Record<string, string>> },
 ) {
   try {
@@ -33,11 +32,8 @@ async function deleteMedia(
       )
     }
 
-    const dataSource = await getConnection()
-    const uploadedMediaRepository = dataSource.getRepository(UploadedMedia)
-
     // Find media belonging to user
-    const media = await uploadedMediaRepository.findOne({
+    const media = await prisma.uploadedMedia.findFirst({
       where: { id, userId: user.id },
     })
 
@@ -54,7 +50,7 @@ async function deleteMedia(
     }
 
     // Check if already deleted
-    if (media.status === 'deleted') {
+    if (media.status === UPLOADED_MEDIA_STATUS.DELETED) {
       return NextResponse.json(
         {
           data: null,
@@ -67,7 +63,7 @@ async function deleteMedia(
     }
 
     // Delete from R2
-    if (media.r2Key && media.status === 'active') {
+    if (media.r2Key && media.status === UPLOADED_MEDIA_STATUS.ACTIVE) {
       try {
         await deleteFromR2(media.r2Key)
       } catch (error) {
@@ -77,9 +73,13 @@ async function deleteMedia(
     }
 
     // Mark as deleted in database
-    media.status = 'deleted'
-    media.deletedAt = new Date()
-    await uploadedMediaRepository.save(media)
+    await prisma.uploadedMedia.update({
+      where: { id },
+      data: {
+        status: UPLOADED_MEDIA_STATUS.DELETED,
+        deletedAt: new Date(),
+      },
+    })
 
     return NextResponse.json({
       data: { deleted: true },

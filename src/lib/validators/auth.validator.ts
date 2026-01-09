@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { UserRole } from '../../database/entities/enums'
+import { UserRole } from '@prisma/client'
 
 export const registerSchema = z.object({
   email: z.string().email('Invalid email format'),

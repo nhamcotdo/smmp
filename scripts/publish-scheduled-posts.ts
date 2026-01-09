@@ -13,7 +13,6 @@
  */
 
 import 'dotenv/config'
-import 'reflect-metadata'
 import { runScheduledPostPublisher } from '../src/lib/jobs/publish-scheduled-posts'
 
 async function main() {

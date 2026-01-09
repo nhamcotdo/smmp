@@ -1,15 +1,12 @@
 import { NextResponse } from 'next/server'
-import { getConnection } from '@/lib/db/connection'
-import { Post } from '@/database/entities/Post.entity'
-import { PostPublication } from '@/database/entities/PostPublication.entity'
-import { SocialAccount } from '@/database/entities/SocialAccount.entity'
-import { User } from '@/database/entities/User.entity'
-import { Platform, PostStatus, ContentType } from '@/database/entities/enums'
+import { prisma } from '@/lib/db/connection'
 import { withAuth } from '@/lib/auth/middleware'
+import { PLATFORM, POST_STATUS, CONTENT_TYPE } from '@/lib/constants'
 import { getUserThreads } from '@/lib/services/threads.service'
 import { extractHashtags, extractMentions } from '@/lib/utils/content-parser'
 import type { ApiResponse } from '@/lib/types'
 import type { ThreadsPost } from '@/lib/types/threads'
+import type { ContentType } from '@prisma/client'
 
 interface SyncPostsResponse {
   synced: number
@@ -30,14 +27,14 @@ const DEFAULT_SYNC_LIMIT = 25
  */
 function mapThreadsMediaType(mediaType: string | undefined): ContentType {
   switch (mediaType) {
-    case 'IMAGE':
-      return ContentType.IMAGE
-    case 'VIDEO':
-      return ContentType.VIDEO
-    case 'CAROUSEL':
-      return ContentType.IMAGE
+    case CONTENT_TYPE.IMAGE:
+      return CONTENT_TYPE.IMAGE as ContentType
+    case CONTENT_TYPE.VIDEO:
+      return CONTENT_TYPE.VIDEO as ContentType
+    case CONTENT_TYPE.CAROUSEL:
+      return CONTENT_TYPE.IMAGE as ContentType
     default:
-      return ContentType.TEXT
+      return CONTENT_TYPE.TEXT as ContentType
   }
 }
 
@@ -47,7 +44,7 @@ function mapThreadsMediaType(mediaType: string | undefined): ContentType {
  */
 async function syncChannelPosts(
   request: Request,
-  user: User,
+  user: any,
   context?: { params: Promise<Record<string, string>> },
 ) {
   try {
@@ -93,26 +90,21 @@ async function syncChannelPosts(
       }
     }
 
-    const dataSource = await getConnection()
-    const socialAccountRepository = dataSource.getRepository(SocialAccount)
-    const postRepository = dataSource.getRepository(Post)
-    const postPublicationRepository = dataSource.getRepository(PostPublication)
-
-    const account = await socialAccountRepository.findOne({
+    const account = await prisma.socialAccount.findFirst({
       where: {
         id: channelId,
         userId: user.id,
-        platform: Platform.THREADS,
+        platform: PLATFORM.THREADS,
       },
     })
 
-    if (!account) {
+    if (!account || !account.accessToken) {
       return NextResponse.json(
         {
           data: null,
           status: 404,
           success: false,
-          message: 'Threads channel not found',
+          message: 'Threads channel not found or access token missing',
         } as unknown as ApiResponse<SyncPostsResponse>,
         { status: 404 }
       )
@@ -129,11 +121,13 @@ async function syncChannelPosts(
     const threads = threadsResponse.data || []
 
     // Get existing platform post IDs to avoid duplicates
-    const existingPublications = await postPublicationRepository
-      .createQueryBuilder('publication')
-      .where('publication.socialAccountId = :accountId', { accountId: account.id })
-      .andWhere('publication.platformPostId IS NOT NULL')
-      .getMany()
+    const existingPublications = await prisma.postPublication.findMany({
+      where: {
+        socialAccountId: account.id,
+        platformPostId: { not: null },
+      },
+      select: { platformPostId: true },
+    })
 
     const existingPlatformPostIds = new Set(
       existingPublications.map((p) => p.platformPostId).filter(Boolean)
@@ -161,36 +155,36 @@ async function syncChannelPosts(
       }
 
       // Create Post
-      const post = postRepository.create({
-        userId: user.id,
-        content: thread.text || '',
-        status: PostStatus.PUBLISHED,
-        contentType: mapThreadsMediaType(thread.media_type),
-        publishedAt,
-        isScheduled: false,
-        hashtags: extractHashtags(thread.text || ''),
-        mentions: extractMentions(thread.text || ''),
+      const post = await prisma.post.create({
+        data: {
+          userId: user.id,
+          content: thread.text || '',
+          status: POST_STATUS.PUBLISHED,
+          contentType: mapThreadsMediaType(thread.media_type),
+          publishedAt,
+          isScheduled: false,
+          hashtags: extractHashtags(thread.text || ''),
+          mentions: extractMentions(thread.text || ''),
+        },
       })
-
-      const savedPost = await postRepository.save(post)
 
       // Create PostPublication
-      const publication = postPublicationRepository.create({
-        postId: savedPost.id,
-        socialAccountId: account.id,
-        platform: Platform.THREADS,
-        status: PostStatus.PUBLISHED,
-        platformPostId: thread.id,
-        platformPostUrl: thread.permalink || undefined,
-        publishedAt,
-        lastSyncedAt: new Date(),
+      await prisma.postPublication.create({
+        data: {
+          postId: post.id,
+          socialAccountId: account.id,
+          platform: PLATFORM.THREADS,
+          status: POST_STATUS.PUBLISHED,
+          platformPostId: thread.id,
+          platformPostUrl: thread.permalink || undefined,
+          publishedAt,
+          lastSyncedAt: new Date(),
+        },
       })
 
-      await postPublicationRepository.save(publication)
-
       syncedPosts.push({
-        postId: savedPost.id,
-        content: savedPost.content,
+        postId: post.id,
+        content: post.content,
         publishedAt: publishedAt.toISOString(),
         platformPostId: thread.id,
       })

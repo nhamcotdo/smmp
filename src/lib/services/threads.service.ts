@@ -23,6 +23,7 @@ import type {
   TextStyleInfo,
   TextEntityType,
 } from '@/lib/types/threads'
+import { ThreadsContainerStatusValue, OAUTH_GRANT_TYPE } from '@/lib/constants'
 
 const THREADS_API_HOST = 'https://graph.threads.net'
 
@@ -51,7 +52,7 @@ export async function exchangeCodeForToken(code: string): Promise<ThreadsTokenRe
   const params = new URLSearchParams({
     client_id: config.appId,
     client_secret: config.appSecret,
-    grant_type: 'authorization_code',
+    grant_type: OAUTH_GRANT_TYPE.AUTHORIZATION_CODE,
     redirect_uri: config.redirectUri,
     code,
   })
@@ -74,7 +75,7 @@ export async function exchangeCodeForToken(code: string): Promise<ThreadsTokenRe
 export async function getLongLivedToken(shortLivedToken: string): Promise<ThreadsLongLivedTokenResponse> {
   const config = getConfig()
   const params = new URLSearchParams({
-    grant_type: 'th_exchange_token',
+    grant_type: OAUTH_GRANT_TYPE.TH_EXCHANGE_TOKEN,
     client_secret: config.appSecret,
     access_token: shortLivedToken,
   })
@@ -95,7 +96,7 @@ export async function getLongLivedToken(shortLivedToken: string): Promise<Thread
 export async function refreshAccessToken(refreshToken: string): Promise<ThreadsRefreshTokenResponse> {
   const config = getConfig()
   const params = new URLSearchParams({
-    grant_type: 'th_refresh_token',
+    grant_type: OAUTH_GRANT_TYPE.TH_REFRESH_TOKEN,
     refresh_token: refreshToken,
   })
 
@@ -115,7 +116,7 @@ export async function refreshAccessToken(refreshToken: string): Promise<ThreadsR
 export async function getAppAccessToken(): Promise<ThreadsTokenResponse> {
   const config = getConfig()
   const params = new URLSearchParams({
-    grant_type: 'client_credentials',
+    grant_type: OAUTH_GRANT_TYPE.CLIENT_CREDENTIALS,
     client_id: config.appId,
     client_secret: config.appSecret,
   })
@@ -507,7 +508,7 @@ export function extractAllMetrics(
  */
 export interface ThreadsContainerStatus {
   id: string
-  status: 'FINISHED' | 'IN_PROGRESS' | 'ERROR' | 'EXPIRED' | 'PUBLISHED'
+  status: ThreadsContainerStatusValue
   error_message?: string
 }
 

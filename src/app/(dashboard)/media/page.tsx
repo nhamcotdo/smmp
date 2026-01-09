@@ -4,7 +4,8 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/contexts/AuthContext'
 import Link from 'next/link'
-import { MediaType } from '@/database/entities/enums'
+import { MediaType } from '@prisma/client'
+import { UPLOADED_MEDIA_STATUS } from '@/lib/constants'
 
 interface MediaListItem {
   id: string
@@ -13,7 +14,7 @@ interface MediaListItem {
   url: string
   mimeType: string
   fileSize: number
-  status: 'active' | 'deleted' | 'expired'
+  status: string
   createdAt: string
   postId: string | null
 }
@@ -276,7 +277,7 @@ export default function MediaPage() {
                     >
                       View
                     </a>
-                    {item.status === 'active' && (
+                    {item.status === UPLOADED_MEDIA_STATUS.ACTIVE && (
                       <button
                         onClick={() => handleDelete(item.id)}
                         className="rounded-md border border-red-300 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-900/20"

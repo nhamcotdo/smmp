@@ -1,11 +1,7 @@
 import { NextResponse } from 'next/server'
-import { getConnection } from '@/lib/db/connection'
-import { Post } from '@/database/entities/Post.entity'
-import { PostPublication } from '@/database/entities/PostPublication.entity'
-import { SocialAccount } from '@/database/entities/SocialAccount.entity'
-import { User } from '@/database/entities/User.entity'
-import { Platform } from '@/database/entities/enums'
+import { prisma } from '@/lib/db/connection'
 import { withAuth } from '@/lib/auth/middleware'
+import { PLATFORM } from '@/lib/constants'
 import { getThreadInsights, extractAllMetrics } from '@/lib/services/threads.service'
 import type { ApiResponse } from '@/lib/types'
 
@@ -27,7 +23,7 @@ interface PostInsightsResponse {
  */
 async function getPostInsights(
   request: Request,
-  user: User,
+  user: any,
   context?: { params: Promise<Record<string, string>> },
 ) {
   try {
@@ -36,13 +32,8 @@ async function getPostInsights(
       throw new Error('Post ID is required')
     }
 
-    const dataSource = await getConnection()
-    const postRepository = dataSource.getRepository(Post)
-    const postPublicationRepository = dataSource.getRepository(PostPublication)
-    const socialAccountRepository = dataSource.getRepository(SocialAccount)
-
     // Get the post
-    const post = await postRepository.findOne({
+    const post = await prisma.post.findFirst({
       where: { id: postId, userId: user.id },
     })
 
@@ -59,10 +50,10 @@ async function getPostInsights(
     }
 
     // Get Threads publications for this post
-    const publications = await postPublicationRepository.find({
+    const publications = await prisma.postPublication.findMany({
       where: {
         postId: post.id,
-        platform: Platform.THREADS,
+        platform: PLATFORM.THREADS,
       },
     })
 
@@ -80,11 +71,11 @@ async function getPostInsights(
 
     // Get insights for the first publication (can be extended for multiple)
     const publication = publications[0]
-    const socialAccount = await socialAccountRepository.findOne({
+    const socialAccount = await prisma.socialAccount.findFirst({
       where: { id: publication.socialAccountId },
     })
 
-    if (!socialAccount || !publication.platformPostId) {
+    if (!socialAccount || !socialAccount.accessToken || !publication.platformPostId) {
       return NextResponse.json(
         {
           data: null,

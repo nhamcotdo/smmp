@@ -25,19 +25,19 @@ SMMP (Social Media Management Platform) is a Next.js 16 application for managing
 - `npm run cron:publish` - Manually trigger scheduled post publisher
 - Production: Use external cron services or systemd (see README.md)
 
-### Database (TypeORM)
-- `npm run db:init` - Initialize database
-- `npm run db:migrate` - Run migrations
-- `npm run db:migration:generate` - Generate migration from schema changes
-- `npm run db:migration:run` - Apply pending migrations
-- `npm run db:migration:revert` - Revert last migration
+### Database (Prisma)
+- `npm run db:push` - Push schema changes to database (development)
+- `npm run db:migrate:dev` - Create and apply migration (development)
+- `npm run db:migrate:deploy` - Apply migrations (production)
+- `npm run db:studio` - Open Prisma Studio GUI
+- `npm run db:seed` - Seed database with sample data
 
 ## Architecture Overview
 
 ### Tech Stack
 - **Framework**: Next.js 16 with App Router
 - **Language**: TypeScript 5 (strict mode, decorators enabled)
-- **Database**: PostgreSQL with TypeORM 0.3.28
+- **Database**: PostgreSQL with Prisma ORM 6.19.1
 - **Authentication**: JWT with Passport + httpOnly cookies
 - **Styling**: Tailwind CSS 4
 - **Testing**: Vitest + Testing Library + jsdom
@@ -58,10 +58,10 @@ SMMP (Social Media Management Platform) is a Next.js 16 application for managing
    - `validators/` - Zod validation schemas
    - `utils/` - Shared utilities (database config, content parsing, timezone)
 
-3. **Data Layer** (`src/database/`)
-   - `entities/` - TypeORM entities (10 entities)
-   - `db/connection.ts` - Singleton database connection with global caching
-   - No repositories pattern - direct DataSource usage
+3. **Data Layer** (`prisma/`)
+   - `schema.prisma` - Database schema definitions (8 models, 8 enums)
+   - `migrations/` - Database migration history
+   - `lib/db/connection.ts` - Prisma Client singleton with global caching
 
 4. **Presentation** (`src/`)
    - `app/` - Next.js pages and layouts
@@ -116,15 +116,17 @@ SMMP (Social Media Management Platform) is a Next.js 16 application for managing
 
 ### Global Database Connection Pattern
 
-The app uses a singleton connection pattern (`src/lib/db/connection.ts`):
+The app uses a Prisma Client singleton pattern (`src/lib/db/connection.ts`):
 ```typescript
 // Global connection caching in development
 declare global {
-  var __typeorm__: DataSource | undefined
+  var __prisma__: PrismaClient | undefined
 }
+
+export const prisma = getPrismaClient()
 ```
 
-Use `getConnection()` everywhere - never create new DataSource instances directly. The connection is cached globally and reused across hot reloads in development.
+Use `prisma` from `@/lib/db/connection` everywhere - never create new PrismaClient instances directly. The connection is cached globally and reused across hot reloads in development.
 
 ### Authentication Architecture
 
@@ -145,8 +147,6 @@ Use `getConnection()` everywhere - never create new DataSource instances directl
 
 **TypeScript Configuration:**
 - `strict: true` enabled
-- `experimentalDecorators: true` for TypeORM entities
-- `emitDecoratorMetadata: true` for entity type metadata
 - Path aliases: `@/*` maps to `./src/*`
 
 ### Constants Reference (`src/lib/constants.ts`)
@@ -192,9 +192,9 @@ ALLOWED_DEV_ORIGINS=threads-sample.meta,localhost,127.0.0.1
 
 ### Important Architectural Notes
 
-**No Migrations in Development:**
-- `synchronize: true` in non-production (TypeORM auto-creates tables)
-- Generate migrations only for production deployments
+**Schema Synchronization:**
+- Development: Use `npm run db:push` to sync schema without migrations
+- Production: Use `prisma migrate deploy` to apply migration files
 
 **Media Handling:**
 - R2 presigned URLs for uploads (via r2-presigned.service.ts)

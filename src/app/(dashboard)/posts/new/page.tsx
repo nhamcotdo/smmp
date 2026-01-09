@@ -6,7 +6,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import Link from 'next/link'
 import { getChannels } from '@/lib/api/channels'
 import type { Channel } from '@/lib/api/channels'
-import { Platform } from '@/database/entities/enums'
+import { PLATFORM, ACCOUNT_STATUS } from '@/lib/constants'
 import { getNowUtcPlus7Input } from '@/lib/utils/timezone'
 
 import { PublishModeSelector } from './components/PublishModeSelector'
@@ -101,7 +101,7 @@ export default function CreatePostPage() {
     if (!isLoading && isAuthenticated) {
       getChannels()
         .then((data) => {
-          setChannels(data.filter((ch) => ch.platform === Platform.THREADS && ch.status === 'active'))
+          setChannels(data.filter((ch) => ch.platform === PLATFORM.THREADS && ch.status === ACCOUNT_STATUS.ACTIVE))
           setIsLoadingChannels(false)
         })
         .catch((err) => {
@@ -148,7 +148,7 @@ export default function CreatePostPage() {
     )
   }
 
-  const threadsChannels = channels.filter((ch) => ch.platform === Platform.THREADS)
+  const threadsChannels = channels.filter((ch) => ch.platform === PLATFORM.THREADS)
 
   const isSubmitDisabled =
     !selectedChannel ||

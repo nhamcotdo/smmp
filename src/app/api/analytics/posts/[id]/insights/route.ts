@@ -1,12 +1,8 @@
 import { NextResponse, NextRequest } from 'next/server'
-import { getConnection } from '@/lib/db/connection'
-import { PostPublication } from '@/database/entities/PostPublication.entity'
-import { SocialAccount } from '@/database/entities/SocialAccount.entity'
-import { User } from '@/database/entities/User.entity'
-import { Analytics } from '@/database/entities/Analytics.entity'
+import { prisma } from '@/lib/db/connection'
 import { withAuth } from '@/lib/auth/middleware'
 import { getThreadsPostInsights } from '@/lib/services/threads.service'
-import { Platform, MetricsPeriod } from '@/database/entities/enums'
+import { PLATFORM, METRICS_PERIOD } from '@/lib/constants'
 import type { ApiResponse } from '@/lib/types'
 import type { PostInsights } from '@/lib/types/analytics'
 
@@ -16,7 +12,7 @@ import type { PostInsights } from '@/lib/types/analytics'
  */
 async function getPostInsights(
   request: NextRequest,
-  user: User,
+  user: any,
   context?: { params: Promise<Record<string, string>> },
 ): Promise<NextResponse<ApiResponse<PostInsights | null>>> {
   try {
@@ -35,20 +31,16 @@ async function getPostInsights(
       )
     }
 
-    const dataSource = await getConnection()
-    const postPublicationRepository = dataSource.getRepository(PostPublication)
-    const analyticsRepository = dataSource.getRepository(Analytics)
+    // First, find the publication and verify ownership
+    const publication = await prisma.postPublication.findFirst({
+      where: { id },
+      include: {
+        post: true,
+        socialAccount: true,
+      },
+    })
 
-    // Use INNER JOIN to ensure post exists and belongs to user (security)
-    const publication = await postPublicationRepository
-      .createQueryBuilder('publication')
-      .innerJoin('publication.post', 'post')
-      .leftJoinAndSelect('publication.socialAccount', 'socialAccount')
-      .where('publication.id = :id', { id })
-      .andWhere('post.userId = :userId', { userId: user.id })
-      .getOne()
-
-    if (!publication) {
+    if (!publication || !publication.post) {
       return NextResponse.json(
         {
           data: null,
@@ -60,8 +52,20 @@ async function getPostInsights(
       )
     }
 
-    const socialAccount = publication.socialAccount as SocialAccount | null
-    if (!socialAccount) {
+    // Verify user owns the post
+    if (publication.post.userId !== user.id) {
+      return NextResponse.json(
+        {
+          data: null,
+          status: 403,
+          success: false,
+          message: 'You do not have permission to access this publication',
+        } satisfies ApiResponse<null>,
+        { status: 403 }
+      )
+    }
+
+    if (!publication.socialAccount || !publication.socialAccount.accessToken) {
       return NextResponse.json(
         {
           data: null,
@@ -73,7 +77,7 @@ async function getPostInsights(
       )
     }
 
-    if (publication.platform !== Platform.THREADS) {
+    if (publication.platform !== PLATFORM.THREADS) {
       return NextResponse.json(
         {
           data: null,
@@ -99,55 +103,48 @@ async function getPostInsights(
 
     // Fetch insights from Threads API
     const metrics = await getThreadsPostInsights(
-      socialAccount.accessToken,
+      publication.socialAccount.accessToken,
       publication.platformPostId
     )
 
     // Persist insights to database for future use
-    const existingAnalytics = await analyticsRepository.findOne({
+    const existingAnalytics = await prisma.analytics.findFirst({
       where: { postPublicationId: publication.id },
     })
 
-    if (existingAnalytics) {
-      // Update existing analytics record
-      existingAnalytics.impressionsCount = metrics.views
-      existingAnalytics.likesCount = metrics.likes
-      existingAnalytics.commentsCount = metrics.replies
-      existingAnalytics.sharesCount = metrics.shares
-      existingAnalytics.reachCount = metrics.views
-      existingAnalytics.recordedAt = new Date()
-      // Store raw metrics data for future reference
-      existingAnalytics.rawData = {
+    const analyticsData = {
+      impressionsCount: metrics.views,
+      likesCount: metrics.likes,
+      commentsCount: metrics.replies,
+      sharesCount: metrics.shares,
+      reachCount: metrics.views,
+      recordedAt: new Date(),
+      rawData: {
         views: metrics.views,
         likes: metrics.likes,
         shares: metrics.shares,
         replies: metrics.replies,
         quotes: metrics.quotes,
         reposts: metrics.reposts,
-      }
-      await analyticsRepository.save(existingAnalytics)
+      },
+    }
+
+    if (existingAnalytics) {
+      // Update existing analytics record
+      await prisma.analytics.update({
+        where: { id: existingAnalytics.id },
+        data: analyticsData,
+      })
     } else {
       // Create new analytics record
-      const analyticsRecord = analyticsRepository.create({
-        postPublicationId: publication.id,
-        platform: publication.platform,
-        period: MetricsPeriod.DAILY,
-        impressionsCount: metrics.views,
-        likesCount: metrics.likes,
-        commentsCount: metrics.replies,
-        sharesCount: metrics.shares,
-        reachCount: metrics.views,
-        recordedAt: new Date(),
-        rawData: {
-          views: metrics.views,
-          likes: metrics.likes,
-          shares: metrics.shares,
-          replies: metrics.replies,
-          quotes: metrics.quotes,
-          reposts: metrics.reposts,
+      await prisma.analytics.create({
+        data: {
+          postPublicationId: publication.id,
+          platform: publication.platform,
+          period: METRICS_PERIOD.DAILY,
+          ...analyticsData,
         },
       })
-      await analyticsRepository.save(analyticsRecord)
     }
 
     return NextResponse.json({

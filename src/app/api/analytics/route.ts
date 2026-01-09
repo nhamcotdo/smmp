@@ -1,16 +1,11 @@
 import { NextResponse, NextRequest } from 'next/server'
-import { getConnection } from '@/lib/db/connection'
-import { Post } from '@/database/entities/Post.entity'
-import { PostPublication } from '@/database/entities/PostPublication.entity'
-import { Analytics } from '@/database/entities/Analytics.entity'
-import { SocialAccount } from '@/database/entities/SocialAccount.entity'
-import { User } from '@/database/entities/User.entity'
+import { prisma } from '@/lib/db/connection'
 import { withAuth } from '@/lib/auth/middleware'
-import { PostStatus } from '@/database/entities/enums'
 import {
   getOrBuildThreadsPostUrl,
 } from '@/lib/services/threads.service'
 import type { ApiResponse } from '@/lib/types'
+import { POST_STATUS } from '@/lib/constants'
 
 interface AnalyticsOverview {
   totalPosts: number
@@ -32,7 +27,7 @@ interface AnalyticsOverview {
 interface PostAnalytics {
   postId: string
   content: string
-  status: PostStatus
+  status: string
   publishedAt: string | null
   publications: {
     platform: string
@@ -40,15 +35,6 @@ interface PostAnalytics {
     platformPostUrl?: string
     status: string
     publishedAt: string | null
-    analytics?: {
-      views: number
-      likes: number
-      shares: number
-      replies: number
-      quotes: number
-      reposts: number
-    }
-    analyticsError?: string
   }[]
 }
 
@@ -56,36 +42,41 @@ interface PostAnalytics {
  * GET /api/analytics/overview
  * Get overall analytics for the user's posts
  */
-async function getAnalyticsOverview(request: Request, user: User) {
+async function getAnalyticsOverview(request: Request, user: any) {
   try {
-    const dataSource = await getConnection()
-    const postRepository = dataSource.getRepository(Post)
-    const postPublicationRepository = dataSource.getRepository(PostPublication)
-    const analyticsRepository = dataSource.getRepository(Analytics)
-
     // Get post counts by status
     const [totalPosts, publishedPosts, scheduledPosts, failedPosts] = await Promise.all([
-      postRepository.count({ where: { userId: user.id } }),
-      postRepository.count({ where: { userId: user.id, status: PostStatus.PUBLISHED } }),
-      postRepository.count({ where: { userId: user.id, status: PostStatus.SCHEDULED } }),
-      postRepository.count({ where: { userId: user.id, status: PostStatus.FAILED } }),
+      prisma.post.count({ where: { userId: user.id } }),
+      prisma.post.count({ where: { userId: user.id, status: POST_STATUS.PUBLISHED } }),
+      prisma.post.count({ where: { userId: user.id, status: POST_STATUS.SCHEDULED } }),
+      prisma.post.count({ where: { userId: user.id, status: POST_STATUS.FAILED } }),
     ])
 
-    // Get all publications for this user
-    const publications = await postPublicationRepository
-      .createQueryBuilder('publication')
-      .leftJoin('publication.post', 'post')
-      .where('post.userId = :userId', { userId: user.id })
-      .andWhere('publication.status = :status', { status: PostStatus.PUBLISHED })
-      .getMany()
+    // Get all publications for this user through their posts
+    const userPosts = await prisma.post.findMany({
+      where: { userId: user.id },
+      select: { id: true },
+    })
+
+    const postIds = userPosts.map(p => p.id)
+
+    const publications = postIds.length > 0
+      ? await prisma.postPublication.findMany({
+          where: {
+            postId: { in: postIds },
+            status: POST_STATUS.PUBLISHED,
+          },
+        })
+      : []
 
     // Get analytics for these publications
     const publicationIds = publications.map((p) => p.id)
     const analyticsRecords = publicationIds.length > 0
-      ? await analyticsRepository
-          .createQueryBuilder('analytics')
-          .where('analytics.postPublicationId IN (:...publicationIds)', { publicationIds })
-          .getMany()
+      ? await prisma.analytics.findMany({
+          where: {
+            postPublicationId: { in: publicationIds },
+          },
+        })
       : []
 
     // Aggregate metrics
@@ -154,27 +145,29 @@ async function getAnalyticsOverview(request: Request, user: User) {
  * GET /api/analytics/posts
  * Get analytics for all user's posts with fresh Threads insights
  */
-async function getPostsAnalytics(request: NextRequest, user: User) {
+async function getPostsAnalytics(request: NextRequest, user: any) {
   try {
     const { searchParams } = new URL(request.url)
     const limit = parseInt(searchParams.get('limit') ?? '20', 10)
     const offset = parseInt(searchParams.get('offset') ?? '0', 10)
 
-    const dataSource = await getConnection()
-    const postRepository = dataSource.getRepository(Post)
-    const postPublicationRepository = dataSource.getRepository(PostPublication)
-
-    // Get only published posts with socialAccount relation
-    const posts = await postRepository
-      .createQueryBuilder('post')
-      .leftJoinAndSelect('post.publications', 'publication')
-      .leftJoinAndSelect('publication.socialAccount', 'socialAccount')
-      .where('post.userId = :userId', { userId: user.id })
-      .andWhere('post.status = :status', { status: PostStatus.PUBLISHED })
-      .orderBy('post.createdAt', 'DESC')
-      .take(limit)
-      .skip(offset)
-      .getMany()
+    // Get only published posts with publications and socialAccount relation
+    const posts = await prisma.post.findMany({
+      where: {
+        userId: user.id,
+        status: POST_STATUS.PUBLISHED,
+      },
+      include: {
+        publications: {
+          include: {
+            socialAccount: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+      skip: offset,
+    })
 
     const response: PostAnalytics[] = []
 
@@ -184,8 +177,8 @@ async function getPostsAnalytics(request: NextRequest, user: User) {
           const socialAccount = pub.socialAccount
 
           // Get or fetch permalink (auto-saves to DB if missing)
-          const platformPostUrl = socialAccount
-            ? await getOrFetchPermalink(pub, socialAccount, postPublicationRepository)
+          const platformPostUrl = socialAccount?.accessToken
+            ? await getOrFetchPermalink(pub, socialAccount)
             : undefined
 
           // Return publication without analytics - insights are fetched on-demand via separate API
@@ -196,8 +189,6 @@ async function getPostsAnalytics(request: NextRequest, user: User) {
             platformPostUrl,
             status: pub.status,
             publishedAt: pub.publishedAt?.toISOString() ?? null,
-            // Only include analytics if they exist in database (from previous fetches)
-            // Do NOT fetch fresh insights here - use /api/analytics/posts/:id/insights endpoint
           }
         })
       )
@@ -235,18 +226,13 @@ type AnalyticsResponse = AnalyticsOverview | PostAnalytics[]
 /**
  * Helper to get or fetch permalink for a publication
  * Fetches from API if not in database and saves it
- * @param pub - The post publication entity
- * @param socialAccount - The social account with access token
- * @param postPublicationRepository - The repository for saving updates
- * @returns The platform post URL
  */
 async function getOrFetchPermalink(
-  pub: PostPublication,
-  socialAccount: SocialAccount,
-  postPublicationRepository: import('typeorm').Repository<PostPublication>
-): Promise<string> {
+  pub: { id: string; platformPostUrl?: string | null; platformPostId?: string | null },
+  socialAccount: { accessToken: string | null; username: string }
+): Promise<string | undefined> {
   let platformPostUrl = pub.platformPostUrl?.trim()
-  if (!platformPostUrl && socialAccount && pub.platformPostId) {
+  if (!platformPostUrl && socialAccount.accessToken && pub.platformPostId) {
     try {
       platformPostUrl = await getOrBuildThreadsPostUrl(
         socialAccount.accessToken,
@@ -254,8 +240,10 @@ async function getOrFetchPermalink(
         socialAccount.username
       )
       // Save to database for future use
-      pub.platformPostUrl = platformPostUrl
-      await postPublicationRepository.save(pub)
+      await prisma.postPublication.update({
+        where: { id: pub.id },
+        data: { platformPostUrl },
+      })
     } catch (permalinkError) {
       console.error(`Failed to fetch permalink for ${pub.id}:`, permalinkError)
       // Fallback to built URL
@@ -263,14 +251,14 @@ async function getOrFetchPermalink(
     }
   }
 
-  if (!platformPostUrl && socialAccount && pub.platformPostId) {
+  if (!platformPostUrl && socialAccount.accessToken && pub.platformPostId) {
     platformPostUrl = `https://www.threads.com/@${socialAccount.username}/post/${pub.platformPostId}`
   }
 
   return platformPostUrl
 }
 
-export const GET = withAuth<AnalyticsResponse>(async (request: NextRequest, user: User) => {
+export const GET = withAuth<AnalyticsResponse>(async (request: NextRequest, user: any) => {
   const { searchParams } = new URL(request.url)
   const type = searchParams.get('type')
 

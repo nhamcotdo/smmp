@@ -1,0 +1,403 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// Enums
+// ============================================
+
+// SocialAccount enums
+enum SocialAccountPlatform {
+  THREADS
+  INSTAGRAM
+  TWITTER
+  FACEBOOK
+  LINKEDIN
+  TIKTOK
+  @@map("social_accounts_platform_enum")
+}
+
+enum AccountStatus {
+  ACTIVE
+  EXPIRED
+  REVOKED
+  ERROR
+  PENDING
+  @@map("social_accounts_status_enum")
+}
+
+enum AccountHealth {
+  HEALTHY
+  DEGRADED
+  UNHEALTHY
+  UNKNOWN
+  @@map("social_accounts_health_enum")
+}
+
+// Post enums
+enum PostStatus {
+  DRAFT
+  SCHEDULED
+  PUBLISHING
+  PUBLISHED
+  FAILED
+  CANCELLED
+  @@map("posts_status_enum")
+}
+
+enum ContentType {
+  TEXT
+  IMAGE
+  VIDEO
+  CAROUSEL
+  STORY
+  REEL
+  MIXED
+  @@map("posts_content_type_enum")
+}
+
+// PostPublication enums
+enum PostPublicationPlatform {
+  THREADS
+  INSTAGRAM
+  TWITTER
+  FACEBOOK
+  LINKEDIN
+  TIKTOK
+  @@map("post_publications_platform_enum")
+}
+
+// Media enums
+enum MediaType {
+  IMAGE
+  VIDEO
+  GIF
+  DOCUMENT
+  AUDIO
+  @@map("media_type_enum")
+}
+
+// UploadedMedia enums
+enum UploadedMediaType {
+  IMAGE
+  VIDEO
+  GIF
+  DOCUMENT
+  AUDIO
+  @@map("uploaded_media_type_enum")
+}
+
+enum UploadedMediaStatus {
+  ACTIVE
+  DELETED
+  EXPIRED
+  @@map("uploaded_media_status_enum")
+}
+
+// Analytics enums
+enum AnalyticsPlatform {
+  THREADS
+  INSTAGRAM
+  TWITTER
+  FACEBOOK
+  LINKEDIN
+  TIKTOK
+  @@map("analytics_platform_enum")
+}
+
+enum MetricsPeriod {
+  HOURLY
+  DAILY
+  WEEKLY
+  MONTHLY
+  @@map("analytics_period_enum")
+}
+
+// User enums
+enum UserRole {
+  ADMIN
+  USER
+  VIEWER
+  @@map("users_role_enum")
+}
+
+// RefreshToken enums
+enum RefreshTokenStatus {
+  ACTIVE
+  REVOKED
+  EXPIRED
+  @@map("refresh_tokens_status_enum")
+}
+
+// ============================================
+// Models
+// ============================================
+
+model User {
+  id            String         @id @default(uuid())
+  name          String         @db.VarChar(255)
+  email         String         @unique @db.VarChar(255)
+  password      String         @db.VarChar(255)
+  role          UserRole       @default(USER)
+  avatar        String?        @db.VarChar(2048)
+  isActive      Boolean        @default(true) @map("is_active")
+  emailVerified Boolean        @default(false) @map("email_verified")
+  lastLoginAt   DateTime?      @map("last_login_at")
+  preferences   Json?          @map("preferences")
+  createdAt     DateTime       @default(now()) @db.Timestamptz(3) @map("created_at")
+  updatedAt     DateTime       @updatedAt @db.Timestamptz(3) @map("updated_at")
+
+  // Relations
+  socialAccounts SocialAccount[]
+  posts          Post[]
+  refreshTokens  RefreshToken[]
+  uploadedMedia  UploadedMedia[]
+
+  @@index([email], map: "idx_users_email")
+  @@index([role], map: "idx_users_role")
+  @@index([createdAt], map: "idx_users_created_at")
+  @@map("users")
+}
+
+model RefreshToken {
+  id           String             @id @default(uuid())
+  userId       String             @map("user_id")
+  token        String             @unique @map("token")
+  expiresAt    DateTime           @map("expires_at")
+  status       RefreshTokenStatus @default(ACTIVE)
+  isRememberMe Boolean            @default(false) @map("is_remember_me")
+  revokedAt    DateTime?          @map("revoked_at")
+  revokedIp    String?            @map("revoked_ip") @db.VarChar(45)
+  createdAt    DateTime           @default(now()) @db.Timestamptz(3) @map("created_at")
+  updatedAt    DateTime           @updatedAt @db.Timestamptz(3) @map("updated_at")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId], map: "idx_refresh_tokens_user_id")
+  @@index([token], map: "idx_refresh_tokens_token")
+  @@index([expiresAt], map: "idx_refresh_tokens_expires_at")
+  @@map("refresh_tokens")
+}
+
+model SocialAccount {
+  id              String                @id @default(uuid())
+  userId          String                @map("user_id")
+  platform        SocialAccountPlatform
+  platformUserId  String                @map("platform_user_id") @db.VarChar(255)
+  username        String        @map("username") @db.VarChar(255)
+  displayName     String?       @map("display_name") @db.VarChar(500)
+  avatar          String?       @map("avatar") @db.VarChar(2048)
+  status          AccountStatus @default(PENDING)
+  health          AccountHealth @default(UNKNOWN) @map("health")
+  accessToken     String?       @map("access_token") @db.Text
+  refreshToken    String?       @map("refresh_token") @db.Text
+  tokenExpiresAt  DateTime?     @map("token_expires_at") @db.Timestamptz
+  expiresAt       DateTime?     @map("expires_at") @db.Timestamptz
+  metadata        Json?         @map("metadata")
+  followersCount  Int           @default(0) @map("followers_count")
+  followingCount  Int           @default(0) @map("following_count")
+  postsCount      Int           @default(0) @map("posts_count")
+  lastSyncedAt    DateTime?     @map("last_synced_at") @db.Timestamptz
+  lastPostedAt    DateTime?     @map("last_posted_at") @db.Timestamptz
+  createdAt       DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime      @updatedAt @db.Timestamptz(3)
+
+  // Relations
+  user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  publications PostPublication[]
+  posts        Post[]
+
+  @@unique([userId, platform, platformUserId], map: "idx_social_accounts_user_platform_unique")
+  @@index([userId], map: "idx_social_accounts_user_id")
+  @@index([platform], map: "idx_social_accounts_platform")
+  @@index([status], map: "idx_social_accounts_status")
+  @@index([health], map: "idx_social_accounts_health")
+  @@index([userId, platform], map: "idx_social_accounts_user_platform")
+  @@index([expiresAt], map: "idx_social_accounts_expires_at")
+  @@map("social_accounts")
+}
+
+model Post {
+  id                  String      @id @default(uuid())
+  userId              String      @map("user_id")
+  socialAccountId     String?     @map("social_account_id")
+  content             String      @db.Text
+  status              PostStatus  @default(DRAFT)
+  contentType         ContentType @default(TEXT) @map("content_type")
+  scheduledAt         DateTime?   @map("scheduled_at") @db.Timestamptz
+  publishedAt         DateTime?   @map("published_at") @db.Timestamptz
+  title               String?     @db.VarChar(255)
+  slug                String?     @map("slug") @db.VarChar(255)
+  metadata            Json?       @map("metadata")
+  hashtags            Json?       @map("hashtags")
+  mentions            Json?       @map("mentions")
+  analytics           Json?       @map("analytics")
+  isScheduled         Boolean     @default(false) @map("is_scheduled")
+  failedAt            DateTime?   @map("failed_at") @db.Timestamptz
+  errorMessage        String?     @map("error_message") @db.Text
+  retryCount          Int         @default(0) @map("retry_count")
+  lastRetryAt         DateTime?   @map("last_retry_at") @db.Timestamptz
+  parentPostId        String?     @map("parent_post_id")
+  commentDelayMinutes Int?        @map("comment_delay_minutes")
+  createdAt           DateTime    @default(now()) @db.Timestamptz(3)
+  updatedAt           DateTime    @updatedAt @db.Timestamptz(3)
+
+  // Relations
+  user          User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  socialAccount SocialAccount?   @relation(fields: [socialAccountId], references: [id], onDelete: SetNull)
+  parentPost    Post?            @relation("PostToPost", fields: [parentPostId], references: [id], onDelete: Cascade)
+  childPosts    Post[]           @relation("PostToPost")
+  publications  PostPublication[]
+  media         Media[]
+
+  @@index([userId], map: "idx_posts_user_id")
+  @@index([socialAccountId], map: "idx_posts_social_account_id")
+  @@index([status], map: "idx_posts_status")
+  @@index([scheduledAt], map: "idx_posts_scheduled_at")
+  @@index([publishedAt], map: "idx_posts_published_at")
+  @@index([contentType], map: "idx_posts_content_type")
+  @@index([userId, status], map: "idx_posts_user_status")
+  @@index([status, scheduledAt], map: "idx_posts_scheduled_status")
+  @@index([parentPostId], map: "idx_posts_parent_post_id")
+  @@index([parentPostId, status, scheduledAt], map: "idx_posts_parent_status_scheduled")
+  @@map("posts")
+}
+
+model PostPublication {
+  id               String                @id @default(uuid())
+  postId           String                @map("post_id")
+  socialAccountId  String                @map("social_account_id")
+  platform         PostPublicationPlatform
+  status           PostStatus            @default(DRAFT)
+  platformPostId   String?    @map("platform_post_id") @db.VarChar(255)
+  platformPostUrl  String?    @map("platform_post_url") @db.VarChar(500)
+  scheduledFor     DateTime?  @map("scheduled_for") @db.Timestamptz
+  publishedAt      DateTime?  @map("published_at") @db.Timestamptz
+  likesCount       Int        @default(0) @map("likes_count")
+  commentsCount    Int        @default(0) @map("comments_count")
+  sharesCount      Int        @default(0) @map("shares_count")
+  impressionsCount Int        @default(0) @map("impressions_count")
+  reachCount       Int        @default(0) @map("reach_count")
+  metricsData      Json?      @map("analytics")
+  lastSyncedAt     DateTime?  @map("last_synced_at") @db.Timestamptz
+  errorMessage     String?    @map("error_message") @db.Text
+  failedAt         DateTime?  @map("failed_at") @db.Timestamptz
+  retryCount       Int        @default(0) @map("retry_count")
+  lastRetryAt      DateTime?  @map("last_retry_at") @db.Timestamptz
+  metadata         Json?      @map("metadata")
+  createdAt        DateTime   @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime   @updatedAt @db.Timestamptz(3)
+
+  // Relations
+  post          Post        @relation(fields: [postId], references: [id], onDelete: Cascade)
+  socialAccount SocialAccount @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
+  analyticsList  Analytics[]
+
+  @@unique([postId, platform], map: "idx_post_publications_post_platform")
+  @@index([postId], map: "idx_post_publications_post_id")
+  @@index([socialAccountId], map: "idx_post_publications_social_account_id")
+  @@index([platform], map: "idx_post_publications_platform")
+  @@index([status], map: "idx_post_publications_status")
+  @@index([postId, status], map: "idx_post_publications_post_status")
+  @@index([publishedAt], map: "idx_post_publications_published_at")
+  @@map("post_publications")
+}
+
+model Media {
+  id           String     @id @default(uuid())
+  postId       String     @map("post_id")
+  type         MediaType
+  url          String     @db.VarChar(2083)
+  thumbnailUrl String?    @map("thumbnail_url") @db.VarChar(2083)
+  mimeType     String     @map("mime_type") @db.VarChar(100)
+  fileSize     BigInt?    @map("file_size")
+  width        Int?       @map("width")
+  height       Int?       @map("height")
+  duration     Int?       @map("duration")
+  altText      String?    @map("alt_text") @db.VarChar(255)
+  title        String?    @db.VarChar(255)
+  description  String?    @db.Text
+  order        Int        @default(0) @map("order")
+  metadata     Json?      @map("metadata")
+  provider     String?    @map("provider") @db.VarChar(255)
+  providerKey  String?    @map("provider_key") @db.VarChar(500)
+  createdAt    DateTime   @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime   @updatedAt @db.Timestamptz(3)
+
+  // Relations
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@index([postId], map: "idx_media_post_id")
+  @@index([type], map: "idx_media_type")
+  @@index([mimeType], map: "idx_media_mimetype")
+  @@index([postId, order], map: "idx_media_post_order")
+  @@map("media")
+}
+
+model Analytics {
+  id               String           @id @default(uuid())
+  postPublicationId String           @map("post_publication_id")
+  platform         AnalyticsPlatform
+  period           MetricsPeriod    @default(DAILY)
+  recordedAt       DateTime      @map("recorded_at") @db.Timestamptz
+  likesCount       Int           @default(0) @map("likes_count")
+  commentsCount    Int           @default(0) @map("comments_count")
+  sharesCount      Int           @default(0) @map("shares_count")
+  impressionsCount Int           @default(0) @map("impressions_count")
+  reachCount       Int           @default(0) @map("reach_count")
+  clicksCount      Int           @default(0) @map("clicks_count")
+  savesCount       Int           @default(0) @map("saves_count")
+  engagementRate   Decimal       @default(0) @map("engagement_rate") @db.Decimal(5, 2)
+  demographics     Json?         @map("demographics")
+  metricsByTime    Json?         @map("metrics_by_time")
+  rawData          Json?         @map("raw_data")
+  createdAt        DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime      @updatedAt @db.Timestamptz(3)
+
+  // Relations
+  postPublication PostPublication @relation(fields: [postPublicationId], references: [id], onDelete: Cascade)
+
+  @@index([postPublicationId], map: "idx_analytics_post_publication_id")
+  @@index([platform], map: "idx_analytics_platform")
+  @@index([period], map: "idx_analytics_period")
+  @@index([recordedAt], map: "idx_analytics_recorded_at")
+  @@index([postPublicationId, recordedAt], map: "idx_analytics_publication_recorded")
+  @@map("analytics")
+}
+
+model UploadedMedia {
+  id        String              @id @default(uuid())
+  userId    String              @map("user_id")
+  type      UploadedMediaType
+  filename  String              @map("filename") @db.VarChar(500)
+  url       String              @db.VarChar(2083)
+  r2Key     String?             @map("r2_key") @db.VarChar(500)
+  mimeType  String              @map("mime_type") @db.VarChar(100)
+  fileSize  BigInt              @map("file_size")
+  width     Int?                @map("width")
+  height    Int?                @map("height")
+  duration  Int?                @map("duration")
+  status    UploadedMediaStatus @default(ACTIVE) @map("status")
+  deletedAt DateTime?           @map("deleted_at") @db.Timestamptz
+  postId    String?             @map("post_id") @db.VarChar(255)
+  metadata  Json?               @map("metadata")
+  createdAt DateTime           @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime           @updatedAt @db.Timestamptz(3)
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId], map: "idx_uploaded_media_user_id")
+  @@index([type], map: "idx_uploaded_media_type")
+  @@index([status], map: "idx_uploaded_media_status")
+  @@map("uploaded_media")
+}

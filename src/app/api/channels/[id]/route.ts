@@ -1,10 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getConnection } from '@/lib/db/connection'
-import { SocialAccount } from '@/database/entities/SocialAccount.entity'
-import { User } from '@/database/entities/User.entity'
+import { prisma } from '@/lib/db/connection'
 import { withAuth } from '@/lib/auth/middleware'
-import { AccountStatus } from '@/database/entities/enums'
 import type { ApiResponse } from '@/lib/types'
+import { ACCOUNT_STATUS } from '@/lib/constants'
 
 /**
  * DELETE /api/channels/:id
@@ -12,7 +10,7 @@ import type { ApiResponse } from '@/lib/types'
  */
 async function disconnectChannel(
   request: Request,
-  user: User,
+  user: any,
   context?: { params: Promise<Record<string, string>> },
 ) {
   try {
@@ -21,10 +19,7 @@ async function disconnectChannel(
       throw new Error('Channel ID is required')
     }
 
-    const dataSource = await getConnection()
-    const socialAccountRepository = dataSource.getRepository(SocialAccount)
-
-    const account = await socialAccountRepository.findOne({
+    const account = await prisma.socialAccount.findFirst({
       where: {
         id: channelId,
         userId: user.id,
@@ -44,8 +39,9 @@ async function disconnectChannel(
     }
 
     // Soft delete by marking as revoked
-    await socialAccountRepository.update(account.id, {
-      status: AccountStatus.REVOKED,
+    await prisma.socialAccount.update({
+      where: { id: account.id },
+      data: { status: ACCOUNT_STATUS.REVOKED },
     })
 
     return NextResponse.json({
@@ -73,7 +69,7 @@ async function disconnectChannel(
  */
 async function refreshToken(
   request: Request,
-  user: User,
+  user: any,
   context?: { params: Promise<Record<string, string>> },
 ) {
   try {
@@ -82,23 +78,20 @@ async function refreshToken(
       throw new Error('Channel ID is required')
     }
 
-    const dataSource = await getConnection()
-    const socialAccountRepository = dataSource.getRepository(SocialAccount)
-
-    const account = await socialAccountRepository.findOne({
+    const account = await prisma.socialAccount.findFirst({
       where: {
         id: channelId,
         userId: user.id,
       },
     })
 
-    if (!account) {
+    if (!account || !account.refreshToken) {
       return NextResponse.json(
         {
           data: null,
           status: 404,
           success: false,
-          message: 'Channel not found',
+          message: 'Channel not found or refresh token missing',
         } as unknown as ApiResponse<{ tokenExpiresAt: string }>,
         { status: 404 }
       )
@@ -113,10 +106,13 @@ async function refreshToken(
       const tokenExpiresAt = new Date(Date.now() + newToken.expires_in * 1000)
 
       // CRITICAL: Threads uses the same access_token value as refresh_token
-      await socialAccountRepository.update(account.id, {
-        accessToken: newToken.access_token,
-        refreshToken: newToken.access_token,
-        tokenExpiresAt,
+      await prisma.socialAccount.update({
+        where: { id: account.id },
+        data: {
+          accessToken: newToken.access_token,
+          refreshToken: newToken.access_token,
+          tokenExpiresAt,
+        },
       })
 
       return NextResponse.json({
@@ -129,8 +125,9 @@ async function refreshToken(
       } as unknown as ApiResponse<{ tokenExpiresAt: string }>)
     } catch (refreshError) {
       // Mark account as expired if refresh fails
-      await socialAccountRepository.update(account.id, {
-        status: AccountStatus.EXPIRED,
+      await prisma.socialAccount.update({
+        where: { id: account.id },
+        data: { status: ACCOUNT_STATUS.EXPIRED },
       })
 
       return NextResponse.json(
