@@ -12,6 +12,7 @@ interface MediaListItem {
   fileSize: number
   status: string
   createdAt: string
+  updatedAt: string
   postId: string | null
 }
 
@@ -64,6 +65,7 @@ async function listMedia(request: Request, user: any) {
         fileSize: Number(m.fileSize),
         status: m.status,
         createdAt: m.createdAt.toISOString(),
+        updatedAt: m.updatedAt.toISOString(),
         postId: m.postId || null,
       })),
       total,

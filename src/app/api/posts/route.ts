@@ -29,6 +29,7 @@ interface PostListItem {
   scheduledAt: Date | null
   publishedAt: Date | null
   createdAt: string
+  updatedAt: string
   isScheduled: boolean
   socialAccountId?: string | null
   media?: Array<{
@@ -148,6 +149,7 @@ async function getPosts(request: Request, user: any) {
         scheduledAt: post.scheduledAt ?? null,
         publishedAt: post.publishedAt ?? null,
         createdAt: post.createdAt.toISOString(),
+        updatedAt: post.updatedAt.toISOString(),
         isScheduled: post.isScheduled,
         socialAccountId: post.socialAccountId,
         media: post.media?.map((m) => ({
@@ -615,6 +617,7 @@ async function createPost(request: Request, user: any) {
       scheduledAt: savedPost.scheduledAt ?? null,
       publishedAt: savedPost.publishedAt ?? null,
       createdAt: savedPost.createdAt.toISOString(),
+      updatedAt: savedPost.updatedAt.toISOString(),
       isScheduled: savedPost.isScheduled,
       socialAccountId: savedPost.socialAccountId,
       media: mediaItems,
