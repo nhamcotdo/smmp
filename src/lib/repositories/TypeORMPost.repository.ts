@@ -168,18 +168,10 @@ export class TypeORMPostRepository implements IPostRepository {
   async updateStatus(id: string, status: PostStatus, metadata?: StatusUpdateMetadata): Promise<void> {
     const repo = this.getRepository()
 
-    const updateData: any = { status }
+    const updateData: Record<string, unknown> = { status }
 
     if (metadata?.publishedAt) {
       updateData.publishedAt = metadata.publishedAt
-    }
-
-    if (metadata?.platformPostId) {
-      updateData.platformPostId = metadata.platformPostId
-    }
-
-    if (metadata?.platformUrl) {
-      updateData.platformUrl = metadata.platformUrl
     }
 
     if (metadata?.errorMessage) {

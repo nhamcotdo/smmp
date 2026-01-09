@@ -31,8 +31,6 @@ export class PublicationService {
   async markPostAsPublished(postId: string, result: PublishResult): Promise<void> {
     await this.uow.posts.updateStatus(postId, PostStatus.PUBLISHED, {
       publishedAt: result.platformPostUrl ? new Date() : undefined,
-      platformPostId: result.platformPostId,
-      platformUrl: result.platformPostUrl,
     })
   }
 

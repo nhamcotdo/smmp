@@ -9,8 +9,6 @@ export interface FindPostOptions {
 
 export interface StatusUpdateMetadata {
   publishedAt?: Date
-  platformPostId?: string
-  platformUrl?: string
   errorMessage?: string
 }
 
