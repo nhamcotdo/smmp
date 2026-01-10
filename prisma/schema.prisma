@@ -70,7 +70,7 @@ model SocialAccount {
   postsCount     Int                   @default(0) @map("posts_count")
   lastSyncedAt   DateTime?             @map("last_synced_at") @db.Timestamptz(6)
   lastPostedAt   DateTime?             @map("last_posted_at") @db.Timestamptz(6)
-  createdAt      DateTime              @default(now()) @db.Timestamptz(3)
+  createdAt      DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt      DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
   publications   PostPublication[]
   posts          Post[]
@@ -108,7 +108,7 @@ model Post {
   lastRetryAt         DateTime?         @map("last_retry_at") @db.Timestamptz(6)
   parentPostId        String?           @map("parent_post_id")
   commentDelayMinutes Int?              @map("comment_delay_minutes")
-  createdAt           DateTime          @default(now()) @db.Timestamptz(3)
+  createdAt      DateTime               @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt           DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
   media               Media[]
   publications        PostPublication[]
@@ -152,7 +152,7 @@ model PostPublication {
   retryCount       Int                     @default(0) @map("retry_count")
   lastRetryAt      DateTime?               @map("last_retry_at") @db.Timestamptz(6)
   metadata         Json?                   @map("metadata")
-  createdAt        DateTime                @default(now()) @db.Timestamptz(3)
+  createdAt      DateTime                  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt        DateTime                @updatedAt @map("updated_at") @db.Timestamptz(3)
   analyticsList    Analytics[]
   post             Post                    @relation(fields: [postId], references: [id], onDelete: Cascade)
@@ -186,7 +186,7 @@ model Media {
   metadata     Json?     @map("metadata")
   provider     String?   @map("provider") @db.VarChar(255)
   providerKey  String?   @map("provider_key") @db.VarChar(500)
-  createdAt    DateTime  @default(now()) @db.Timestamptz(3)
+  createdAt      DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
   post         Post      @relation(fields: [postId], references: [id], onDelete: Cascade)
 
@@ -214,7 +214,7 @@ model Analytics {
   demographics      Json?             @map("demographics")
   metricsByTime     Json?             @map("metrics_by_time")
   rawData           Json?             @map("raw_data")
-  createdAt         DateTime          @default(now()) @db.Timestamptz(3)
+  createdAt      DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt         DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
   postPublication   PostPublication   @relation(fields: [postPublicationId], references: [id], onDelete: Cascade)
 
@@ -242,7 +242,7 @@ model UploadedMedia {
   deletedAt DateTime?           @map("deleted_at") @db.Timestamptz(6)
   postId    String?             @map("post_id") @db.VarChar(255)
   metadata  Json?               @map("metadata")
-  createdAt DateTime            @default(now()) @db.Timestamptz(3)
+  createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
   user      User                @relation(fields: [userId], references: [id], onDelete: Cascade)
 
