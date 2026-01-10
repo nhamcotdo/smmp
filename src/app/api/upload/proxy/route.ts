@@ -3,8 +3,7 @@ import { withAuth } from '@/lib/auth/middleware'
 import { prisma } from '@/lib/db/connection'
 import type { ApiResponse } from '@/lib/types'
 import { generatePresignedUrl, isR2Configured } from '@/lib/services/r2-presigned.service'
-import { MEDIA_TYPE, UPLOADED_MEDIA_STATUS, MEDIA_PROXY } from '@/lib/constants'
-import { UploadedMediaType } from '@prisma/client'
+import { UPLOADED_MEDIA_TYPE, UPLOADED_MEDIA_STATUS, MEDIA_PROXY } from '@/lib/constants'
 
 const MAX_FILE_SIZE = MEDIA_PROXY.MAX_VIDEO_SIZE
 const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp', 'image/avif', 'image/bmp']
@@ -115,7 +114,7 @@ async function proxyUpload(request: Request, user: any) {
 
     // Determine media type
     const isImage = ALLOWED_IMAGE_TYPES.includes(file.type)
-    const mediaType = isImage ? UploadedMediaType.IMAGE : UploadedMediaType.VIDEO
+    const mediaType = isImage ? UPLOADED_MEDIA_TYPE.IMAGE : UPLOADED_MEDIA_TYPE.VIDEO
 
     // Save to database
     await prisma.uploadedMedia.create({

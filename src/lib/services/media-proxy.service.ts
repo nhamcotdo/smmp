@@ -6,8 +6,8 @@
 
 import { prisma } from '@/lib/db/connection'
 import { generatePresignedUrl, getPublicUrlForKey } from '@/lib/services/r2-presigned.service'
-import { MEDIA_PROXY, UPLOADED_MEDIA_STATUS, MEDIA_TYPE } from '@/lib/constants'
-import { UploadedMediaStatus, UploadedMediaType } from '@prisma/client'
+import { MEDIA_PROXY, UPLOADED_MEDIA_STATUS, UPLOADED_MEDIA_TYPE } from '@/lib/constants'
+import { UploadedMediaStatus } from '@prisma/client'
 
 export interface ProxyResult {
   url: string
@@ -354,7 +354,7 @@ export async function proxyMediaToR2(
 
     // Determine media type
     const isImage = mimeType.startsWith('image/')
-    const mediaType = isImage ? UploadedMediaType.IMAGE : UploadedMediaType.VIDEO
+    const mediaType = isImage ? UPLOADED_MEDIA_TYPE.IMAGE : UPLOADED_MEDIA_TYPE.VIDEO
 
     // Generate R2 key
     const r2Key = generateR2Key(userId, originalUrl, mimeType)

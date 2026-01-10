@@ -6,8 +6,9 @@ import { useAuth } from '@/contexts/AuthContext'
 import Link from 'next/link'
 import { getChannels } from '@/lib/api/channels'
 import type { Channel } from '@/lib/api/channels'
-import { PostStatus, ContentType } from '@prisma/client'
-import { PLATFORM, ACCOUNT_STATUS } from '@/lib/constants'
+import { PostStatus } from '@prisma/client'
+import { PLATFORM, ACCOUNT_STATUS, CONTENT_TYPE } from '@/lib/constants'
+import { toUIContentType, toDBContentType, type PostContentTypeUI } from '@/lib/utils/content-type-mapper'
 import { utcToUtcPlus7Input } from '@/lib/utils/timezone'
 
 import { PublishModeSelector } from '../../new/components/PublishModeSelector'
@@ -30,7 +31,7 @@ interface PostDetail {
   id: string
   content: string
   status: PostStatus
-  contentType: ContentType
+  contentType: string
   scheduledAt: string | null
   publishedAt: string | null
   createdAt: string
@@ -72,15 +73,12 @@ interface PostDetail {
   socialAccountId?: string | null
 }
 
-function contentTypeToPostContentType(contentType: ContentType): PostContentType {
-  if (contentType === ContentType.CAROUSEL) return 'carousel'
-  return 'single'
+function contentTypeToPostContentType(contentType: string): PostContentTypeUI {
+  return toUIContentType(contentType)
 }
 
-function postContentTypeToContentType(contentType: PostContentType): ContentType {
-  if (contentType === 'carousel') return ContentType.CAROUSEL
-  if (contentType === 'single') return ContentType.IMAGE
-  return ContentType.TEXT
+function postContentTypeToContentType(contentType: PostContentTypeUI): string {
+  return toDBContentType(contentType)
 }
 
 export default function EditPostPage() {
@@ -194,7 +192,7 @@ export default function EditPostPage() {
 
         // Load media if exists
         if (postData.media && postData.media.length > 0) {
-          if (postData.contentType === ContentType.CAROUSEL) {
+          if (postData.contentType === CONTENT_TYPE.CAROUSEL) {
             // Sort by the order field from the database
             const items: CarouselMediaItem[] = postData.media
               .sort((a, b) => a.order - b.order)

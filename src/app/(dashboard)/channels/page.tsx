@@ -6,6 +6,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import Link from 'next/link'
 import { getChannels, disconnectChannel, refreshChannelToken, getThreadsConnectUrl } from '@/lib/api/channels'
 import type { Channel } from '@/lib/api/channels'
+import { getPlatformIcon, getStatusColor } from '@/lib/utils/ui-helpers'
 
 export default function ChannelsPage() {
   const { user, isAuthenticated, isLoading } = useAuth()
@@ -76,39 +77,7 @@ export default function ChannelsPage() {
     }
   }
 
-  function getPlatformIcon(platform: string) {
-    switch (platform.toLowerCase()) {
-      case 'threads':
-        return '🧵'
-      case 'facebook':
-        return '📘'
-      case 'instagram':
-        return '📷'
-      case 'tiktok':
-        return '🎵'
-      case 'youtube':
-        return '▶️'
-      default:
-        return '📱'
-    }
-  }
-
-  function getStatusColor(status: string) {
-    switch (status.toLowerCase()) {
-      case 'active':
-        return 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-200'
-      case 'expired':
-        return 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-200'
-      case 'pending':
-        return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-200'
-      case 'error':
-      case 'revoked':
-        return 'bg-gray-100 text-gray-800 dark:bg-gray-900/20 dark:text-gray-200'
-      default:
-        return 'bg-gray-100 text-gray-800 dark:bg-gray-900/20 dark:text-gray-200'
-    }
-  }
-
+  
   function formatExpiresAt(expiresAt?: string) {
     if (!expiresAt) return 'Unknown'
     const date = new Date(expiresAt)

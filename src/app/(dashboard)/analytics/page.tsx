@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation'
 import { useAuth } from '@/contexts/AuthContext'
 import Link from 'next/link'
 import { PostStatus } from '@prisma/client'
+import { PLATFORM } from '@/lib/constants'
+import { getPlatformIcon, getStatusColor } from '@/lib/utils/ui-helpers'
 import type { PostInsights } from '@/lib/types/analytics'
 
 interface AnalyticsOverview {
@@ -171,7 +173,7 @@ export default function AnalyticsPage() {
       for (const post of currentPosts) {
         for (const pub of post.publications) {
           if (
-            pub.platform === 'THREADS' &&
+            pub.platform === PLATFORM.THREADS &&
             pub.platformPostId &&
             pub.status === PostStatus.PUBLISHED &&
             !insightsCache.has(pub.id) &&
@@ -253,16 +255,7 @@ export default function AnalyticsPage() {
     return num.toString()
   }
 
-  function getPlatformIcon(platform: string): string {
-    const icons: Record<string, string> = {
-      THREADS: '🧵',
-      INSTAGRAM: '📷',
-      FACEBOOK: '📘',
-      TWITTER: '🐦',
-      TIKTOK: '🎵',
-    }
-    return icons[platform] || '📱'
-  }
+  // getPlatformIcon is imported from ui-helpers
 
   if (isLoadingData) {
     return (
@@ -458,7 +451,7 @@ export default function AnalyticsPage() {
                             </a>
                           )}
                         </div>
-                        {pub.platform === 'THREADS' && pub.platformPostId && pub.status === PostStatus.PUBLISHED ? (
+                        {pub.platform === PLATFORM.THREADS && pub.platformPostId && pub.status === PostStatus.PUBLISHED ? (
                           <div className="flex items-center gap-4">
                             {pub.analytics ? (
                               <div className="flex gap-4 text-sm text-zinc-600 dark:text-zinc-400">
@@ -489,7 +482,7 @@ export default function AnalyticsPage() {
                               </div>
                             )}
                           </div>
-                        ) : pub.platform === 'THREADS' && pub.status !== PostStatus.PUBLISHED ? (
+                        ) : pub.platform === PLATFORM.THREADS && pub.status !== PostStatus.PUBLISHED ? (
                           <span className="text-xs text-zinc-500 dark:text-zinc-400">
                             Not published yet
                           </span>

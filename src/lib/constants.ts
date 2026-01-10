@@ -189,6 +189,9 @@ export const CONTENT_TYPE = {
   IMAGE: 'IMAGE',
   VIDEO: 'VIDEO',
   CAROUSEL: 'CAROUSEL',
+  STORY: 'STORY',
+  REEL: 'REEL',
+  MIXED: 'MIXED',
 } as const
 
 export type ContentTypeValue = typeof CONTENT_TYPE[keyof typeof CONTENT_TYPE]
@@ -199,6 +202,9 @@ export type ContentTypeValue = typeof CONTENT_TYPE[keyof typeof CONTENT_TYPE]
 export const MEDIA_TYPE = {
   IMAGE: 'IMAGE',
   VIDEO: 'VIDEO',
+  GIF: 'GIF',
+  DOCUMENT: 'DOCUMENT',
+  AUDIO: 'AUDIO',
 } as const
 
 export type MediaTypeValue = typeof MEDIA_TYPE[keyof typeof MEDIA_TYPE]
@@ -267,6 +273,42 @@ export const METRICS_PERIOD = {
 export type MetricsPeriodValue = typeof METRICS_PERIOD[keyof typeof METRICS_PERIOD]
 
 /**
+ * UserRole constants (matches Prisma UserRole enum)
+ */
+export const USER_ROLE = {
+  ADMIN: 'ADMIN',
+  USER: 'USER',
+  VIEWER: 'VIEWER',
+} as const
+
+export type UserRoleValue = typeof USER_ROLE[keyof typeof USER_ROLE]
+
+/**
+ * UploadedMediaType constants (matches Prisma UploadedMediaType enum)
+ */
+export const UPLOADED_MEDIA_TYPE = {
+  IMAGE: 'IMAGE',
+  VIDEO: 'VIDEO',
+  GIF: 'GIF',
+  DOCUMENT: 'DOCUMENT',
+  AUDIO: 'AUDIO',
+} as const
+
+export type UploadedMediaTypeValue = typeof UPLOADED_MEDIA_TYPE[keyof typeof UPLOADED_MEDIA_TYPE]
+
+/**
+ * AnalyticsPlatform constants (matches Prisma AnalyticsPlatform enum)
+ * Reuses PLATFORM values
+ */
+export const ANALYTICS_PLATFORM = PLATFORM
+
+/**
+ * PostPublicationPlatform constants (matches Prisma PostPublicationPlatform enum)
+ * Reuses PLATFORM values
+ */
+export const POST_PUBLICATION_PLATFORM = PLATFORM
+
+/**
  * Error messages
  */
 export const ERROR_MESSAGES = {
@@ -284,6 +326,71 @@ export const ERROR_MESSAGES = {
 } as const
 
 /**
+ * Platform icon mappings
+ */
+export const PLATFORM_ICONS = {
+  THREADS: '🧵',
+  FACEBOOK: '📘',
+  INSTAGRAM: '📷',
+  TIKTOK: '🎵',
+  YOUTUBE: '▶️',
+  DEFAULT: '📱',
+} as const
+
+/**
+ * Status color mappings for UI
+ */
+export const STATUS_COLORS = {
+  ACTIVE: 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-200',
+  EXPIRED: 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-200',
+  PENDING: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-200',
+  ERROR: 'bg-gray-100 text-gray-800 dark:bg-gray-900/20 dark:text-gray-200',
+  REVOKED: 'bg-gray-100 text-gray-800 dark:bg-gray-900/20 dark:text-gray-200',
+  DEFAULT: 'bg-gray-100 text-gray-800 dark:bg-gray-900/20 dark:text-gray-200',
+  // Post statuses
+  DRAFT: 'bg-gray-100 text-gray-800 dark:bg-gray-900/20 dark:text-gray-200',
+  SCHEDULED: 'bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-200',
+  PUBLISHING: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-200',
+  PUBLISHED: 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-200',
+  FAILED: 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-200',
+  CANCELLED: 'bg-gray-100 text-gray-800 dark:bg-gray-900/20 dark:text-gray-200',
+} as const
+
+/**
  * Douyin URL patterns
  */
 export const DOUYIN_URL_PATTERN = /https?:\/\/v\.douyin\.com\/[a-zA-Z0-9_\-\/]+/gi
+
+/**
+ * Media filter options
+ */
+export const MEDIA_FILTERS = {
+  ALL: 'all',
+  IMAGE: 'image',
+  VIDEO: 'video',
+} as const
+
+export type MediaFilterValue = typeof MEDIA_FILTERS[keyof typeof MEDIA_FILTERS]
+
+/**
+ * Media icon mappings
+ */
+export const MEDIA_ICONS = {
+  IMAGE: '🖼️',
+  VIDEO: '🎥',
+  GIF: '🎞️',
+  DOCUMENT: '📄',
+  AUDIO: '🎵',
+  DEFAULT: '📎',
+} as const
+
+/**
+ * Status filter options for media
+ */
+export const MEDIA_STATUS_FILTERS = {
+  ALL: 'all',
+  ACTIVE: 'active',
+  DELETED: 'deleted',
+} as const
+
+export type MediaStatusFilterValue = typeof MEDIA_STATUS_FILTERS[keyof typeof MEDIA_STATUS_FILTERS]

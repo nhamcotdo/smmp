@@ -6,6 +6,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import Link from 'next/link'
 import { PostStatus } from '@prisma/client'
 import { utcToUtcPlus7Input, utcPlus7ToUtc, utcToUtcPlus7Display } from '@/lib/utils/timezone'
+import { getStatusColor } from '@/lib/utils/ui-helpers'
 
 interface ScheduledPost {
   id: string
@@ -178,23 +179,7 @@ export default function ScheduledPostsPage() {
     return `In ${diffDays} day${diffDays !== 1 ? 's' : ''}`
   }
 
-  function getStatusBadge(status: PostStatus) {
-    const styles: Record<PostStatus, string> = {
-      [PostStatus.DRAFT]: 'bg-gray-100 text-gray-800 dark:bg-gray-900/20 dark:text-gray-200',
-      [PostStatus.SCHEDULED]: 'bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-200',
-      [PostStatus.PUBLISHING]: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-200',
-      [PostStatus.PUBLISHED]: 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-200',
-      [PostStatus.FAILED]: 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-200',
-      [PostStatus.CANCELLED]: 'bg-gray-100 text-gray-800 dark:bg-gray-900/20 dark:text-gray-200',
-    }
-
-    return (
-      <span className={`rounded-full px-2 py-1 text-xs font-medium ${styles[status] || styles[PostStatus.DRAFT]}`}>
-        {status.toLowerCase()}
-      </span>
-    )
-  }
-
+  
   if (isLoadingPosts) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -273,7 +258,9 @@ export default function ScheduledPostsPage() {
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
                     <div className="mb-2 flex items-center gap-2">
-                      {getStatusBadge(post.status)}
+                      <span className={`rounded-full px-2 py-1 text-xs font-medium ${getStatusColor(post.status)}`}>
+          {post.status.toLowerCase()}
+        </span>
                       {post.scheduledAt && (
                         <span className="text-sm text-zinc-600 dark:text-zinc-400">
                           {getTimeUntilSchedule(post.scheduledAt)}

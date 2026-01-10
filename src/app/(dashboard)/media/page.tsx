@@ -4,12 +4,12 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/contexts/AuthContext'
 import Link from 'next/link'
-import { MediaType } from '@prisma/client'
-import { UPLOADED_MEDIA_STATUS } from '@/lib/constants'
+import { MEDIA_TYPE, UPLOADED_MEDIA_STATUS, MEDIA_FILTERS, MEDIA_STATUS_FILTERS, type MediaFilterValue, type MediaStatusFilterValue } from '@/lib/constants'
+import { getMediaIcon } from '@/lib/utils/ui-helpers'
 
 interface MediaListItem {
   id: string
-  type: MediaType
+  type: string
   filename: string
   url: string
   mimeType: string
@@ -31,8 +31,8 @@ export default function MediaPage() {
   const [isLoadingMedia, setIsLoadingMedia] = useState(true)
   const [error, setError] = useState('')
   const [successMessage, setSuccessMessage] = useState('')
-  const [filter, setFilter] = useState<'all' | 'image' | 'video'>('all')
-  const [statusFilter, setStatusFilter] = useState<'active' | 'deleted' | 'all'>('active')
+  const [filter, setFilter] = useState<MediaFilterValue>(MEDIA_FILTERS.ALL)
+  const [statusFilter, setStatusFilter] = useState<MediaStatusFilterValue>(MEDIA_STATUS_FILTERS.ACTIVE)
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -106,10 +106,7 @@ export default function MediaPage() {
     return new Date(dateString).toLocaleString()
   }
 
-  function getMediaIcon(type: MediaType): string {
-    return type === MediaType.IMAGE ? '🖼️' : '🎥'
-  }
-
+  
   if (isLoadingMedia) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -170,12 +167,12 @@ export default function MediaPage() {
             </label>
             <select
               value={filter}
-              onChange={(e) => setFilter(e.target.value as 'all' | 'image' | 'video')}
+              onChange={(e) => setFilter(e.target.value as MediaFilterValue)}
               className="rounded-md border border-zinc-300 px-3 py-1.5 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
             >
-              <option value="all">All</option>
-              <option value="image">Images</option>
-              <option value="video">Videos</option>
+              <option value={MEDIA_FILTERS.ALL}>All</option>
+              <option value={MEDIA_FILTERS.IMAGE}>Images</option>
+              <option value={MEDIA_FILTERS.VIDEO}>Videos</option>
             </select>
           </div>
 
@@ -185,12 +182,12 @@ export default function MediaPage() {
             </label>
             <select
               value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as 'active' | 'deleted' | 'all')}
+              onChange={(e) => setStatusFilter(e.target.value as MediaStatusFilterValue)}
               className="rounded-md border border-zinc-300 px-3 py-1.5 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
             >
-              <option value="active">Active</option>
-              <option value="deleted">Deleted</option>
-              <option value="all">All</option>
+              <option value={MEDIA_STATUS_FILTERS.ACTIVE}>Active</option>
+              <option value={MEDIA_STATUS_FILTERS.DELETED}>Deleted</option>
+              <option value={MEDIA_STATUS_FILTERS.ALL}>All</option>
             </select>
           </div>
         </div>
@@ -223,7 +220,7 @@ export default function MediaPage() {
               >
                 {/* Preview */}
                 <div className="relative aspect-square bg-zinc-100 dark:bg-zinc-800">
-                  {item.type === MediaType.IMAGE ? (
+                  {item.type === MEDIA_TYPE.IMAGE ? (
                     <img
                       src={item.url}
                       alt={item.filename}
@@ -237,7 +234,7 @@ export default function MediaPage() {
                     />
                   )}
                   {/* Status Badge */}
-                  {item.status === 'deleted' && (
+                  {item.status === UPLOADED_MEDIA_STATUS.DELETED && (
                     <div className="absolute right-2 top-2 rounded bg-red-600 px-2 py-1 text-xs font-semibold text-white">
                       Deleted
                     </div>
