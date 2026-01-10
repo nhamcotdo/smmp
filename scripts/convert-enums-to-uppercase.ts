@@ -225,8 +225,9 @@ async function countLowercaseValues(
 ): Promise<number> {
   try {
     // Cast parameter to enum type to avoid PostgreSQL type errors
+    // Note: enum type name in cast should NOT be quoted
     const result = await prisma.$queryRawUnsafe<Array<{ count: bigint }>>(
-      `SELECT COUNT(*) as count FROM "${tableName}" WHERE "${columnName}" = $1::"${enumTypeName}"`,
+      `SELECT COUNT(*) as count FROM "${tableName}" WHERE "${columnName}" = $1::${enumTypeName}`,
       lowerValue
     )
     return Number(result[0]?.count ?? 0)
@@ -257,8 +258,9 @@ async function convertEnumValue(
   }
 
   // Use parameterized query with type casting to prevent SQL injection
+  // Note: enum type name in cast should NOT be quoted
   const result = await prisma.$executeRawUnsafe(
-    `UPDATE "${tableName}" SET "${columnName}" = $1::"${enumTypeName}" WHERE "${columnName}" = $2::"${enumTypeName}"`,
+    `UPDATE "${tableName}" SET "${columnName}" = $1::${enumTypeName} WHERE "${columnName}" = $2::${enumTypeName}`,
     upperValue,
     lowerValue
   )
