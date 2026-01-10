@@ -32,6 +32,42 @@ SMMP (Social Media Management Platform) is a Next.js 16 application for managing
 - `npm run db:studio` - Open Prisma Studio GUI
 - `npm run db:seed` - Seed database with sample data
 
+### Database Schema Changes Workflow
+
+**When to use `db push` vs `migrate dev`:**
+
+| Scenario | Command | Use Case |
+|----------|---------|----------|
+| Development | `npm run db:push` | Rapid prototyping, experimental changes |
+| Team Development | `npm run db:migrate:dev --name description` | Tracked schema changes with migration history |
+| Production | `npm run db:migrate:deploy` | Apply tested migrations to production |
+| Sync Existing DB | `npx prisma db pull` | Sync Prisma schema with existing database |
+
+**Best Practices:**
+1. **Always use `migrate dev` for schema changes that will be deployed** - This creates migration history
+2. **Only use `db push` for local development experiments** - Avoids migration conflicts
+3. **Never use `--accept-data-loss` in production** - Can destroy data without warning
+4. **Always review generated migration SQL** - Verify before committing
+5. **Test migrations on staging first** - Production deployments should be predictable
+
+**Typical Workflow:**
+```bash
+# 1. Make schema changes in prisma/schema.prisma
+# 2. Create migration (development)
+npm run db:migrate:dev --name add_updated_at_columns
+
+# 3. Review the generated migration in prisma/migrations/
+# 4. Commit both schema.prisma and migration folder
+# 5. In production, deploy:
+npm run db:migrate:deploy
+```
+
+**Timestamp Behavior:**
+- All tables use `@updatedAt` directive for automatic timestamp updates
+- Prisma automatically updates `updated_at` on any `update()` operation
+- Raw SQL queries (`$executeRaw`) do NOT trigger automatic updates
+- Timezone-aware: stored as `TIMESTAMPTZ(3)` with millisecond precision
+
 ## Architecture Overview
 
 ### Tech Stack
@@ -191,10 +227,6 @@ ALLOWED_DEV_ORIGINS=threads-sample.meta,localhost,127.0.0.1
 - External: POST to `/api/jobs/publish-scheduled` with `Authorization: Bearer CRON_SECRET`
 
 ### Important Architectural Notes
-
-**Schema Synchronization:**
-- Development: Use `npm run db:push` to sync schema without migrations
-- Production: Use `prisma migrate deploy` to apply migration files
 
 **Media Handling:**
 - R2 presigned URLs for uploads (via r2-presigned.service.ts)
