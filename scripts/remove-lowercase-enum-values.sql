@@ -118,13 +118,33 @@ BEGIN
 
     -- Restore default if it existed (converting to uppercase if needed)
     IF old_default IS NOT NULL THEN
-      -- The default is already uppercase, just use it
-      EXECUTE format(
-        'ALTER TABLE %I ALTER COLUMN %I SET DEFAULT %s',
-        column_record.table_name,
-        column_record.column_name,
-        replace(old_default, '::' || enum_type, '::' || temp_type)
-      );
+      -- Extract the default value and convert to uppercase if needed
+      -- Format: 'value'::enum_type or "value"::enum_type
+      DECLARE
+        default_value TEXT;
+        new_default TEXT;
+      BEGIN
+        -- Extract value from default (remove quotes and type cast)
+        default_value := regexp_replace(
+          regexp_replace(old_default, '''::.*$', ''),
+          '"', '''', 'g'
+        );
+
+        -- Convert to uppercase if it's a lowercase value we're removing
+        IF default_value = value_to_remove THEN
+          default_value := upper(value_to_remove);
+        END IF;
+
+        -- Create new default with proper type cast
+        new_default := quote_literal(default_value) || '::' || temp_type;
+
+        EXECUTE format(
+          'ALTER TABLE %I ALTER COLUMN %I SET DEFAULT %s',
+          column_record.table_name,
+          column_record.column_name,
+          new_default
+        );
+      END;
     END IF;
   END LOOP;
 
