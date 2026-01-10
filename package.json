@@ -13,9 +13,13 @@
     "type-check": "tsc --noEmit",
     "cron:publish": "npx tsx scripts/publish-scheduled-posts.ts",
     "db:push": "prisma db push",
+    "db:pull": "prisma db pull",
+    "db:migrate": "npx tsx scripts/create-migration.ts",
+    "db:migrate:create": "npx tsx scripts/create-migration.ts",
     "db:migrate:dev": "prisma migrate dev",
     "db:migrate:deploy": "prisma migrate deploy",
     "db:migrate:reset": "prisma migrate reset",
+    "db:migrate:status": "prisma migrate status",
     "db:studio": "prisma studio",
     "db:seed": "npx tsx scripts/seed.ts"
   },
