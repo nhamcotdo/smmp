@@ -29,10 +29,9 @@ BEGIN
     'CREATE TYPE %I AS ENUM (%s)',
     temp_type,
     (
-      SELECT string_agg(quote_literal(enumlabel), ', ')
+      SELECT string_agg(quote_literal(enumlabel), ', ' ORDER BY enumsortorder)
       FROM pg_enum
       WHERE enumtypid = enum_type::regtype AND enumlabel != value_to_remove
-      ORDER BY enumsortorder
     )
   );
 
