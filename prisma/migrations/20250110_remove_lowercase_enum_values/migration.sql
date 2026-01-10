@@ -69,12 +69,25 @@ BEGIN
       -- Convert default value to uppercase and use temp type
       DECLARE
         new_default TEXT;
+        default_value TEXT;
       BEGIN
         new_default := column_record.column_default;
+
         -- Replace lowercase value with uppercase
         new_default := replace(new_default, value_to_remove, upper(value_to_remove));
+
         -- Replace original enum type with temporary type in the default
         new_default := replace(new_default, '::' || enum_type, '::' || temp_type);
+
+        -- Handle defaults without explicit type casting
+        -- If no ::type in default, extract the value and add temp type casting
+        IF new_default !~ '::' THEN
+          -- Extract quoted value from default (e.g., 'USER' from 'USER'::text)
+          default_value := substring(new_default FROM '''([^'']+)''');
+          IF default_value IS NOT NULL AND default_value != '' THEN
+            new_default := quote_literal(default_value) || '::' || temp_type;
+          END IF;
+        END IF;
 
         EXECUTE format(
           'ALTER TABLE %I ALTER COLUMN %I SET DEFAULT %s',
