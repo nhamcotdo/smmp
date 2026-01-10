@@ -21,7 +21,8 @@
     "add:enum:values": "npx tsx scripts/add-uppercase-enum-values.ts",
     "convert:enums": "npx tsx scripts/convert-enums-to-uppercase.ts",
     "migrate:add:uppercase": "psql $DATABASE_URL -f prisma/migrations/20250110_add_uppercase_enum_values/migration.sql",
-    "migrate:remove:lowercase": "psql $DATABASE_URL -f prisma/migrations/20250110_remove_lowercase_enum_values/migration.sql"
+    "migrate:remove:lowercase": "psql $DATABASE_URL -f prisma/migrations/20250110_remove_lowercase_enum_values/migration.sql",
+    "migrate:remove:lowercase:prod": "psql $DATABASE_URL -f scripts/remove-lowercase-enum-values.sql"
   },
   "dependencies": {
     "@prisma/client": "^6.19.1",
