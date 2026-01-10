@@ -1,6 +1,6 @@
 # Database Migrations Guide
 
-This project uses file-based database migrations with Prisma.
+This project uses **Prisma Migrate** for file-based database migrations, following the official [Prisma Migrate workflows](https://www.prisma.io/docs/orm/prisma-migrate/getting-started).
 
 ## Overview
 
@@ -8,80 +8,125 @@ Migrations are SQL files that describe changes to the database schema. They are:
 - **Version controlled** - All changes tracked in git
 - **Reviewable** - SQL can be reviewed before applying
 - **Safe** - Can be tested on staging before production
-- **Reversible** - Rollback capability
+- **Team-friendly** - Supports concurrent development
 
 ## Migration Files Structure
 
 ```
 prisma/migrations/
-├── README.md                    # This file
-├── 20250110_init_schema/        # Migration folder (timestamp_description)
-│   └── migration.sql           # SQL to apply this migration
-├── 20250115_add_users_table/
+├── 20250110140442_init/           # Migration folder (YYYYMMDDHHMMSS_description)
+│   └── migration.sql              # SQL to apply this migration
+├── 20250115150815_add_users_table/
 │   └── migration.sql
-└── ...
+└── migration_lock.toml            # Lock file (commit to source control)
 ```
 
-## Creating a New Migration
+**Migration Naming Convention**: Migrations use `YYYYMMDDHHMMSS_description` format. Migrations are applied in **lexicographic order** (alphabetical/numerical), so timestamps ensure correct execution order.
 
-### Method 1: Automatic (Recommended)
+## Source Control Requirements
 
-Let Prisma generate migration from schema changes:
+**IMPORTANT**: Commit both of these to source control:
 
-```bash
-# 1. Make changes to prisma/schema.prisma
-# 2. Create migration file (does not apply)
-npx prisma migrate dev --create-only --name add_user_preferences
+1. **The `prisma/migrations` folder** (including `migration_lock.toml`)
+2. **The `prisma/schema.prisma` file**
 
-# 3. Review the generated SQL
-cat prisma/migrations/*/migration.sql
+Why both?
+- Customized migrations contain information not representable in Prisma schema
+- `prisma migrate deploy` only runs migration files
+- Team members need both to sync schema changes
 
-# 4. Edit the SQL if needed (add indexes, constraints, etc.)
-
-# 5. Apply the migration
-npx prisma migrate dev
-```
-
-### Method 2: Manual
-
-Create SQL file manually for full control:
-
-```bash
-# 1. Create migration directory
-mkdir -p prisma/migrations/$(date +%Y%m%d)_my_change
-
-# 2. Create migration SQL
-cat > prisma/migrations/$(date +%Y%m%d)_my_change/migration.sql << 'EOF'
--- Add user preferences column
-ALTER TABLE users ADD COLUMN preferences JSONB;
-
--- Create index
-CREATE INDEX idx_users_preferences ON users((preferences->>'theme'));
-EOF
-
-# 3. Mark migration as applied (after manual review)
-npx prisma migrate resolve --applied $(date +%Y%m%d)_my_change
-```
+Reference: [Implementing Schema Changes in Teams](https://www.prisma.io/docs/guides/implementing-schema-changes#source-control-requirements)
 
 ## Development Workflow
 
-### Local Development
+### Getting Started from Scratch
+
+For new projects or after database reset:
 
 ```bash
-# 1. Create a new migration
-npx prisma migrate dev --create-only --name my_feature
+# 1. Create initial migration
+npx prisma migrate dev --name init
 
-# 2. Review and edit the SQL
+# This creates:
+# - Migration file in prisma/migrations/
+# - Applies migration to database
+# - Generates Prisma Client
+```
+
+### Adding Schema Changes (Development)
+
+**Step 1: Pull latest team changes**
+
+```bash
+# Always pull first to get latest migrations
+git pull
+
+# Verify migrations are in sync
+npx prisma migrate status
+```
+
+**Step 2: Make schema changes**
+
+```bash
+# Edit prisma/schema.prisma
+# Example: Add new field to model
+```
+
+**Step 3: Create migration**
+
+```bash
+# Method A: Using custom script (recommended - no shadow DB needed)
+npx tsx scripts/create-migration.ts --name add_user_preferences
+
+# Method B: Using Prisma CLI (requires shadow database)
+npx prisma migrate dev --create-only --name add_user_preferences
+```
+
+**Step 4: Review and edit SQL**
+
+```bash
+# Review generated SQL
 cat prisma/migrations/*/migration.sql
 
-# 3. Apply migration to local database
-npx prisma migrate dev
+# Edit if needed:
+# - Add indexes
+# - Add constraints
+# - Modify for production safety
+```
 
-# 4. Generate Prisma Client
+**Step 5: Apply migration locally**
+
+```bash
+# Apply to local database
+psql $DATABASE_URL -f prisma/migrations/*/migration.sql
+
+# Or use Prisma (if shadow DB available)
+npx prisma migrate dev
+```
+
+**Step 6: Mark as applied**
+
+```bash
+# Tell Prisma migration was applied
+npx prisma migrate resolve --applied 20250110_add_user_preferences
+```
+
+**Step 7: Test your changes**
+
+```bash
+# Generate Prisma Client
 npx prisma generate
 
-# 5. Test your changes
+# Run application
 npm run dev
+```
+
+**Step 8: Commit changes**
+
+```bash
+# Commit BOTH migrations and schema
+git add prisma/migrations/ prisma/schema.prisma
+git commit -m "feat: add user preferences column"
 ```
 
 ### Resetting Local Database
@@ -93,6 +138,45 @@ npx prisma migrate reset
 # Or use db push for quick reset (development only)
 npx prisma db push --force-reset
 ```
+
+## Team Collaboration Workflow
+
+When multiple developers work on schema changes:
+
+### Scenario: Two Developers, Different Changes
+
+**Developer A** adds a field to `User` model:
+```bash
+# Make schema changes
+npx tsx scripts/create-migration.ts --name add_favorite_color
+# Edit SQL, apply locally, commit
+```
+
+**Developer B** adds a new `Tag` model:
+```bash
+# Make schema changes
+npx tsx scripts/create-migration.ts --name add_tag_model
+# Edit SQL, apply locally, commit
+```
+
+### Integrating Team Changes
+
+**When pulling changes from teammates:**
+
+```bash
+# 1. Pull latest changes (new migrations + schema)
+git pull
+
+# 2. Apply team's migrations to local database
+npx prisma migrate dev
+
+# 3. Now create your own migration
+npx tsx scripts/create-migration.ts --name your_feature
+```
+
+The migration history will have both migrations applied in lexicographic order.
+
+Reference: [Implementing Schema Changes in Teams](https://www.prisma.io/docs/guides/implementing-schema-changes)
 
 ## Production Workflow
 
@@ -106,7 +190,7 @@ npx prisma migrate status
 DATABASE_URL=$STAGING_DB_URL npx prisma migrate deploy
 
 # 3. Backup production database
-pg_dump $DATABASE_URL > backup_$(date +%Y%m%d).sql
+pg_dump $DATABASE_URL > backup_$(date +%Y%m%d_%H%M%S).sql
 
 # 4. Run production migration
 npx prisma migrate deploy
@@ -124,12 +208,25 @@ npm install
 # 3. Generate Prisma Client
 npx prisma generate
 
-# 4. Apply migrations
+# 4. Apply migrations (only runs pending migrations)
 npx prisma migrate deploy
 
 # 5. Start application
 npm run build && npm start
 ```
+
+**Note**: `prisma migrate deploy`:
+- Only applies migrations that haven't been applied yet
+- Is production-safe (no shadow database needed)
+- Used in CI/CD pipelines
+
+## Baselining for Existing Projects
+
+If you have an existing database with data and want to start using Prisma Migrate:
+
+See: [`docs/migrations-baselining.md`](./migrations-baselining.md)
+
+Baselining tells Prisma Migrate that initial migrations have already been applied, preventing errors when trying to create existing tables.
 
 ## Migration Best Practices
 
@@ -137,11 +234,12 @@ npm run build && npm start
 
 - **Write descriptive migration names**: `add_user_index` not `migration_001`
 - **Add indexes**: When adding columns that will be queried
-- **Use transactions**: Wrap related changes in BEGIN/COMMIT
 - **Test on staging**: Always test before production
 - **Backup first**: Before production migrations
 - **Make migrations reversible**: Include rollback logic in comments
 - **Add comments**: Explain complex changes
+- **Commit both schema and migrations**: Required for team collaboration
+- **Pull before creating migrations**: Avoid conflicts
 
 ### DON'T ❌
 
@@ -150,6 +248,8 @@ npm run build && npm start
 - **Don't change enum types carelessly**: Requires special handling
 - **Don't forget indexes**: Add indexes for new query patterns
 - **Don't mix schema and data**: Separate data migrations
+- **Don't commit without testing**: Test migrations locally first
+- **Don't ignore migration status**: Check `npx prisma migrate status` before deploying
 
 ## SQL Examples
 
@@ -302,8 +402,8 @@ DIRECT_URL="postgresql://user:password@localhost:5432/smmp?schema=public"
 ```json
 {
   "scripts": {
+    "db:migrate": "npx tsx scripts/create-migration.ts",
     "db:migrate:dev": "prisma migrate dev",
-    "db:migrate:create": "prisma migrate dev --create-only",
     "db:migrate:deploy": "prisma migrate deploy",
     "db:migrate:reset": "prisma migrate reset",
     "db:migrate:status": "prisma migrate status",
@@ -325,9 +425,34 @@ Before committing migrations:
 - [ ] No hardcoded environment values
 - [ ] Transaction boundaries correct
 - [ ] Comments explain complex logic
+- [ ] Both `schema.prisma` and `migrations/` committed
 
 ## Resources
 
-- [Prisma Migrate Docs](https://www.prisma.io/docs/concepts/components/prisma-migrate)
+### Official Prisma Documentation
+
+This guide follows the official Prisma Migrate workflows:
+
+- **[Getting Started with Prisma Migrate](https://www.prisma.io/docs/orm/prisma-migrate/getting-started)** - Learn how to migrate your schema in a development environment
+  - From scratch - Setting up Prisma Migrate for new projects
+  - Adding to existing projects - Baselining workflow for databases with existing data
+
+- **[Implementing Schema Changes in Teams](https://www.prisma.io/docs/guides/implementing-schema-changes)** - Team collaboration guide
+  - Migration order and source control requirements
+  - Handling concurrent schema changes
+  - Integrating team changes
+
+- **[Baselining Guide](https://www.prisma.io/docs/orm/prisma-migrate/workflows/baselining)** - Initialize migration history for existing databases
+  - When to use baselining
+  - Baseline migration creation workflow
+
+### Project Documentation
+
+- **[Baselining Guide](./migrations-baselining.md)** - Project-specific baselining documentation
+- **[Manual Migration Guide](./migrations-manual-guide.md)** - Step-by-step manual migration workflow
+- **[Quick Reference](./migrations-quick-reference.md)** - Common commands and patterns
+
+### PostgreSQL Resources
+
 - [PostgreSQL ALTER TABLE](https://www.postgresql.org/docs/current/sql-altertable.html)
 - [Database Indexing Guide](https://www.postgresql.org/docs/current/indexes.html)

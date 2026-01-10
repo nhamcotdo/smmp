@@ -89,3 +89,11 @@ npx prisma migrate reset
 2. **BACKUP PRODUCTION** - Backup trước khi run prod
 3. **NEVER AUTO-COMMIT** - Không tự commit migration code
 4. **VERIFY AFTER APPLY** - Verify sau khi apply
+
+## Resources
+
+### Official Prisma Documentation
+
+- **[Getting Started with Prisma Migrate](https://www.prisma.io/docs/orm/prisma-migrate/getting-started)** - Official getting started guide
+- **[Implementing Schema Changes in Teams](https://www.prisma.io/docs/guides/implementing-schema-changes)** - Team workflow guide
+- **[Full Migration Guide](./migrations.md)** - Project-specific migration documentation
