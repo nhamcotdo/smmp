@@ -48,7 +48,7 @@ const enumMappings: EnumMapping[] = [
   {
     tableName: 'post_publications',
     columnName: 'status',
-    enumTypeName: 'posts_status_enum',
+    enumTypeName: 'post_publications_status_enum',
     mappings: {
       draft: 'DRAFT',
       scheduled: 'SCHEDULED',
