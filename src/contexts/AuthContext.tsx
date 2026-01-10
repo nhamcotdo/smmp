@@ -26,15 +26,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   async function checkAuth() {
     try {
-      const response = await fetch('/api/auth/me')
+      let response = await fetch('/api/auth/me')
+
+      // If unauthorized, try to refresh token
+      if (response.status === 401) {
+        const refreshResponse = await fetch('/api/auth/refresh', { method: 'POST' })
+
+        if (refreshResponse.ok) {
+          // Token refreshed successfully, retry auth check
+          response = await fetch('/api/auth/me')
+        } else {
+          // Refresh failed, clear user
+          setUser(null)
+          setIsLoading(false)
+          return
+        }
+      }
+
       if (response.ok) {
         const data = await response.json()
         if (data.success && data.data) {
           setUser(data.data)
+        } else {
+          setUser(null)
         }
+      } else {
+        setUser(null)
       }
     } catch (error) {
       console.error('Auth check failed:', error)
+      setUser(null)
     } finally {
       setIsLoading(false)
     }

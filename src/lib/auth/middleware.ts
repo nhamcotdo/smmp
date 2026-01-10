@@ -1,20 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyJwtToken } from './passport'
 import type { ApiResponse } from '../types'
+import type { User } from '@prisma/client'
 
 export interface AuthenticatedRequest extends Request {
-  user?: any
+  user?: User
 }
 
 /**
  * Authenticate request using httpOnly cookie
  */
-export async function authenticateRequest(request: NextRequest): Promise<{ user: any }> {
+export async function authenticateRequest(request: NextRequest): Promise<{ user: User }> {
   // Get token from cookie
   const token = request.cookies.get('auth_token')?.value
 
   if (!token) {
-    throw new Error('Unauthorized: No token provided')
+    throw new Error('No authentication token provided')
   }
 
   try {
@@ -22,14 +23,15 @@ export async function authenticateRequest(request: NextRequest): Promise<{ user:
     return { user }
   } catch (error) {
     if (error instanceof Error) {
-      throw new Error(`Unauthorized: ${error.message}`)
+      // Preserve the original error message for better client-side handling
+      throw new Error(error.message)
     }
-    throw new Error('Unauthorized: Invalid token')
+    throw new Error('Invalid token')
   }
 }
 
 export function withAuth<T>(
-  handler: (request: NextRequest, user: any, context?: { params: Promise<Record<string, string>> }) => Promise<NextResponse<ApiResponse<T>>>,
+  handler: (request: NextRequest, user: User, context?: { params: Promise<Record<string, string>> }) => Promise<NextResponse<ApiResponse<T>>>,
 ) {
   return async (
     request: NextRequest,
@@ -39,20 +41,14 @@ export function withAuth<T>(
       const { user } = await authenticateRequest(request)
       return handler(request, user, context)
     } catch (error) {
-      if (error instanceof Error) {
-        return NextResponse.json(
-          {
-            success: false,
-            message: error.message,
-            data: null,
-          } as ApiResponse<T>,
-          { status: 401 },
-        ) as NextResponse<ApiResponse<T>>
-      }
+      const message = error instanceof Error
+        ? error.message
+        : 'Authentication failed'
+
       return NextResponse.json(
         {
           success: false,
-          message: 'Authentication failed',
+          message,
           data: null,
         } as ApiResponse<T>,
         { status: 401 },
@@ -63,7 +59,7 @@ export function withAuth<T>(
 
 export function withAuthAndRoles<T>(
   allowedRoles: string[],
-  handler: (request: NextRequest, user: any) => Promise<NextResponse<ApiResponse<T>>>,
+  handler: (request: NextRequest, user: User) => Promise<NextResponse<ApiResponse<T>>>,
 ) {
   return async (request: NextRequest): Promise<NextResponse<ApiResponse<T>>> => {
     try {

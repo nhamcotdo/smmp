@@ -39,6 +39,9 @@ export function verifyToken(token: string): JwtPayload {
     if (error instanceof jwt.JsonWebTokenError) {
       throw new Error('Invalid token')
     }
+    if (error instanceof jwt.NotBeforeError) {
+      throw new Error('Token not yet valid')
+    }
     throw error
   }
 }
