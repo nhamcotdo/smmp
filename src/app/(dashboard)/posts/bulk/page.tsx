@@ -11,23 +11,8 @@ import { PLATFORM, ACCOUNT_STATUS } from '@/lib/constants'
 import { BulkPostForm } from './components/BulkPostForm'
 import { BulkUrlInput } from './components/BulkUrlInput'
 
-import type { PublishMode, BulkPostFormData } from '@/lib/types/posts'
+import type { PublishMode, BulkPostFormData, BulkPostItem, ParsedDouyinData } from '@/lib/types/posts'
 import { DOUYIN_URL_PATTERN } from '@/lib/constants'
-
-interface ParsedDouyinData {
-  type: 'video' | 'image'
-  downloadUrl: string
-  imageUrl: string[]
-  videoDesc: string
-}
-
-interface BulkPostItem {
-  id: string
-  douyinUrl: string
-  parsedData: ParsedDouyinData | null
-  isParsing: boolean
-  parseError: string
-}
 
 export default function BulkCreatePostPage() {
   const { isAuthenticated, isLoading } = useAuth()
@@ -84,53 +69,105 @@ export default function BulkCreatePostPage() {
     return data.data as ParsedDouyinData
   }
 
-  const handleParseUrls = async () => {
-    const extractedUrls = urlInput.match(DOUYIN_URL_PATTERN) || []
+  const parseBulkPostLine = async (line: string, index: number) => {
+    // Parse the line format: text share | Post Content | Video description | Image description | hh:mm DD/MM/YYYY | channel-username
+    const parts = line.split('|').map(part => part.trim())
 
-    if (extractedUrls.length === 0) {
-      setError('No Douyin URLs found in text. Please paste valid Douyin share links.')
+    // Extract text share (first part - required)
+    const textShare = parts[0] || ''
+    if (!textShare) {
+      throw new Error(`Line ${index + 1}: Text share is required`)
+    }
+
+    // Find Douyin URL in text share
+    const douyinUrl = textShare.match(DOUYIN_URL_PATTERN)?.[0]
+    if (!douyinUrl) {
+      throw new Error(`Line ${index + 1}: No Douyin URL found in text share`)
+    }
+
+    // Extract other optional fields using destructuring with defaults
+    const [, postContent = '', videoDesc = '', imageDesc = '', schedulePart = '', scheduledChannel = ''] = parts
+
+    // Parse scheduled time if present and convert to datetime-local format (YYYY-MM-DDTHH:mm)
+    let scheduledFor = ''
+    if (schedulePart) {
+      const scheduleMatch = schedulePart.match(/(\d{2}:\d{2})\s+(\d{2})\/(\d{2})\/(\d{4})/)
+      if (scheduleMatch) {
+        const [, time, day, month, year] = scheduleMatch
+        // Convert to datetime-local format: YYYY-MM-DDTHH:mm
+        scheduledFor = `${year}-${month}-${day}T${time}`
+      }
+    }
+
+    // Get parsed Douyin data
+    let parsedData: ParsedDouyinData | null = null
+    try {
+      parsedData = await parseDouyinUrl(douyinUrl)
+    } catch (err) {
+      throw new Error(`Line ${index + 1}: Failed to parse Douyin URL - ${err instanceof Error ? err.message : 'Unknown error'}`)
+    }
+
+    return {
+      id: Math.random().toString(36).substring(7),
+      douyinUrl,
+      parsedData,
+      isParsing: false,
+      parseError: '',
+      postContent: postContent || undefined,
+      videoDesc: videoDesc || undefined,
+      imageDesc: imageDesc || undefined,
+      scheduledFor: scheduledFor || undefined,
+      scheduledChannel: scheduledFor ? scheduledChannel : undefined,
+    }
+  }
+
+  const handleParseUrls = async () => {
+    const lines = urlInput.split('\n').filter(line => line.trim())
+
+    if (lines.length === 0) {
+      setError('No input provided. Please enter post data in the specified format.')
       return
     }
 
-    const uniqueUrls = Array.from(new Set(extractedUrls))
-
-    const newItems: BulkPostItem[] = uniqueUrls.map(url => ({
-      id: Math.random().toString(36).substring(7),
-      douyinUrl: url,
-      parsedData: null,
-      isParsing: true,
-      parseError: '',
-    }))
-
-    // Append to existing items if adding more, otherwise replace
-    setBulkPostItems(prev => isAddingUrls ? [...prev, ...newItems] : newItems)
-    setError('')
-    setUrlInput('')
-
-    const parsePromises = newItems.map(async (item) => {
+    // Parse all lines in parallel for better performance
+    const parsePromises = lines.map(async (line, i) => {
       try {
-        const data = await parseDouyinUrl(item.douyinUrl)
-        setBulkPostItems(prev =>
-          prev.map(i =>
-            i.id === item.id
-              ? { ...i, parsedData: data, isParsing: false, parseError: '' }
-              : i
-          )
-        )
+        return await parseBulkPostLine(line, i)
       } catch (err) {
-        setBulkPostItems(prev =>
-          prev.map(i =>
-            i.id === item.id
-              ? { ...i, isParsing: false, parseError: err instanceof Error ? err.message : 'Failed to parse URL' }
-              : i
-          )
-        )
+        return { error: err instanceof Error ? err.message : 'Failed to parse line', index: i }
       }
     })
 
-    await Promise.all(parsePromises)
+    const results = await Promise.all(parsePromises)
 
-    // Exit adding URLs mode after parsing completes
+    // Separate successes and failures with proper type guards
+    const errors: Array<{ error: string; index: number }> = []
+    const validItems: BulkPostItem[] = []
+
+    results.forEach((r) => {
+      if ('error' in r) {
+        errors.push(r)
+      } else {
+        validItems.push(r)
+      }
+    })
+
+    if (errors.length > 0) {
+      const errorMessages = errors.map(e => `Line ${e.index + 1}: ${e.error}`).join('\n')
+      setError(`Failed to parse ${errors.length} line(s):\n${errorMessages}`)
+      // Still process successful items
+      if (validItems.length > 0) {
+        setBulkPostItems(prev => isAddingUrls ? [...prev, ...validItems] : validItems)
+        setUrlInput('')
+      }
+      setIsAddingUrls(false)
+      return
+    }
+
+    // All succeeded - update state
+    setBulkPostItems(prev => isAddingUrls ? [...prev, ...validItems] : validItems)
+    setError('')
+    setUrlInput('')
     setIsAddingUrls(false)
   }
 
@@ -271,9 +308,6 @@ export default function BulkCreatePostPage() {
                 selectedChannel={selectedChannel}
                 scheduledFor={scheduledFor}
                 channels={threadsChannels}
-                _onPublishModeChange={setPublishMode}
-                _onChannelChange={setSelectedChannel}
-                _onScheduledForChange={setScheduledFor}
                 onRemoveItem={handleRemoveItem}
                 onAddManualPost={handleAddManualPost}
                 onAddMoreUrls={handleAddMoreUrls}

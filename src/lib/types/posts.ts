@@ -1,5 +1,25 @@
 import type { ThreadsReplyControl } from '@/lib/types/threads'
 
+export interface ParsedDouyinData {
+  type: 'video' | 'image'
+  downloadUrl: string
+  imageUrl: string[]
+  videoDesc: string
+}
+
+export interface BulkPostItem {
+  id: string
+  douyinUrl: string
+  parsedData: ParsedDouyinData | null
+  isParsing: boolean
+  parseError: string
+  postContent?: string
+  videoDesc?: string
+  imageDesc?: string
+  scheduledFor?: string
+  scheduledChannel?: string
+}
+
 export type PublishMode = 'now' | 'schedule'
 export type PostContentType = 'single' | 'carousel'
 export type MediaKind = 'image' | 'video' | null

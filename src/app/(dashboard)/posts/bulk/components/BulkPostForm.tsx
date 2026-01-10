@@ -13,20 +13,7 @@ import { PublishModeSelector } from '../../new/components/PublishModeSelector'
 import { ChannelSelector } from '../../new/components/ChannelSelector'
 
 import type { Channel } from '@/lib/api/channels'
-import type { PublishMode, PostContentType, MediaPreview, CarouselMediaItem, ScheduledComment, ThreadsOptions, PollOptions, BulkPostFormData } from '@/lib/types/posts'
-
-interface BulkPostItem {
-  id: string
-  douyinUrl: string
-  parsedData: {
-    type: 'video' | 'image'
-    downloadUrl: string
-    imageUrl: string[]
-    videoDesc: string
-  } | null
-  isParsing: boolean
-  parseError: string
-}
+import type { PublishMode, PostContentType, MediaPreview, CarouselMediaItem, ScheduledComment, ThreadsOptions, PollOptions, BulkPostFormData, BulkPostItem } from '@/lib/types/posts'
 
 interface PostFormData {
   content: string
@@ -48,9 +35,6 @@ interface BulkPostFormProps {
   selectedChannel: string
   scheduledFor: string
   channels: Channel[]
-  _onPublishModeChange: (mode: PublishMode) => void
-  _onChannelChange: (channel: string) => void
-  _onScheduledForChange: (date: string) => void
   onRemoveItem: (id: string) => void
   onAddManualPost: () => void
   onAddMoreUrls: () => void
@@ -75,9 +59,6 @@ export function BulkPostForm({
   selectedChannel,
   scheduledFor,
   channels,
-  _onPublishModeChange,
-  _onChannelChange,
-  _onScheduledForChange,
   onRemoveItem,
   onAddManualPost,
   onAddMoreUrls,
@@ -118,35 +99,40 @@ export function BulkPostForm({
             scheduledComments: [],
             publishMode,
             selectedChannel,
-            scheduledFor,
+            scheduledFor: scheduledFor || undefined,
           })
         } else {
           // Post from parsed Douyin data
           const { parsedData } = item
-          const desc = parsedData.videoDesc || ''
+
+          // Use separate descriptions for video and image
+          // ?? respects empty strings (no fallback), || would fallback on empty string
+          const videoDesc = item.videoDesc ?? parsedData.videoDesc ?? item.postContent ?? ''
+          const imageDesc = item.imageDesc ?? item.postContent ?? parsedData.videoDesc ?? ''
+          const postContent = item.postContent ?? videoDesc ?? ''
 
           // Default to carousel for all posts
           const carouselItems: CarouselMediaItem[] = []
 
           if (parsedData.type === 'video' && parsedData.downloadUrl) {
-            // Add video as first carousel item
+            // Add video as first carousel item with video description
             carouselItems.push({
               id: `video-0`,
               type: 'video',
               url: parsedData.downloadUrl,
-              altText: desc,
+              altText: videoDesc,
               sourceUrl: item.douyinUrl,
             })
           }
 
-          // Add all images to carousel
+          // Add all images to carousel with image description
           if (parsedData.imageUrl.length > 0) {
             parsedData.imageUrl.forEach((url, index) => {
               carouselItems.push({
                 id: `img-${index}`,
                 type: 'image',
                 url,
-                altText: desc,
+                altText: imageDesc,
                 sourceUrl: item.douyinUrl,
               })
             })
@@ -154,7 +140,7 @@ export function BulkPostForm({
 
           // Initialize as carousel
           updateFormData(item.id, {
-            content: desc,
+            content: postContent,
             contentType: 'carousel' as PostContentType,
             mediaPreview: null,
             altText: '',
@@ -162,9 +148,9 @@ export function BulkPostForm({
             threadsOptions: { ...DEFAULT_THREADS_OPTIONS },
             pollOptions: { ...DEFAULT_POLL_OPTIONS },
             scheduledComments: [],
-            publishMode,
-            selectedChannel,
-            scheduledFor,
+            publishMode: item.scheduledFor ? 'schedule' : publishMode,
+            selectedChannel: item.scheduledChannel || selectedChannel,
+            scheduledFor: item.scheduledFor || undefined,
           })
         }
       }
@@ -722,8 +708,30 @@ function BulkPostItemForm({ index, item, formData, channels, updateFormData, onR
         </button>
       </div>
 
-      <div className="mb-4 text-xs text-zinc-600 dark:text-zinc-400">
-        Source: {item.douyinUrl}
+      <div className="mb-4 space-y-2">
+        <div className="text-xs text-zinc-600 dark:text-zinc-400">
+          <strong>Source:</strong> {item.douyinUrl}
+        </div>
+        {item.postContent && (
+          <div className="text-xs text-zinc-600 dark:text-zinc-400">
+            <strong>Content:</strong> {item.postContent}
+          </div>
+        )}
+        {item.videoDesc && (
+          <div className="text-xs text-blue-600 dark:text-blue-400">
+            <strong>Video Alt:</strong> {item.videoDesc}
+          </div>
+        )}
+        {item.imageDesc && (
+          <div className="text-xs text-purple-600 dark:text-purple-400">
+            <strong>Image Alt:</strong> {item.imageDesc}
+          </div>
+        )}
+        {item.scheduledFor && (
+          <div className="text-xs text-green-600 dark:text-green-400">
+            <strong>Scheduled:</strong> {item.scheduledFor} {item.scheduledChannel && `(Channel: ${item.scheduledChannel})`}
+          </div>
+        )}
       </div>
 
       {item.parseError && (

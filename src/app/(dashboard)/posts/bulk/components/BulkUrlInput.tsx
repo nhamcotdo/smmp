@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { DOUYIN_URL_PATTERN } from '@/lib/constants'
 
 interface BulkUrlInputProps {
   urlInput: string
@@ -28,13 +27,13 @@ export function BulkUrlInput({ urlInput, onUrlChange, onParse }: BulkUrlInputPro
   return (
     <div className="rounded-lg border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
       <h2 className="mb-4 text-lg font-medium text-zinc-900 dark:text-zinc-50">
-        Paste Douyin Share Content
+        Paste Bulk Post Data
       </h2>
       <p className="mb-4 text-sm text-zinc-600 dark:text-zinc-400">
-        Paste raw Douyin share text (one share per line). URLs will be automatically extracted.
+        Enter one post per line in the format: text share | Post Content | Video description | Image description | hh:mm DD/MM/YYYY | channel-username
         <br />
         <span className="text-xs">
-          Format example: &quot;5.33 hbA:/ 11/24 w@F.HI description text https://v.douyin.com/xxx/ ...&quot;
+          Only text share is required. Other fields are optional. If scheduled time is provided, publish mode will be set to &quot;schedule later&quot;.
         </span>
       </p>
 
@@ -42,19 +41,19 @@ export function BulkUrlInput({ urlInput, onUrlChange, onParse }: BulkUrlInputPro
         value={urlInput}
         onChange={(e) => onUrlChange(e.target.value)}
         onKeyDown={handleKeyPress}
-        placeholder="5.33 hbA:/ 11/24 w@F.HI 2026年不许再倒霉了 姨姨们 # 金三柜  https://v.douyin.com/p_-FFYmr_hc/ 复制此链接，打开Dou音搜索，直接观看视频！&#10;9.28 goD:/ 01/25 u@s.rE 这么多年了！孩子终于说话了 # 豆包ai  https://v.douyin.com/lj4ve2XeaMA/ 复制此链接，打开Dou音搜索，直接观看视频！&#10;..."
+        placeholder="5.33 hbA:/ 11/24 w@F.HI description text https://v.douyin.com/p_-FFYmr_hc/ | Custom post content | Video description | Image description | 15:30 25/12/2024 | mychannel"
         className="mb-4 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm placeholder:text-zinc-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-800 dark:placeholder:text-zinc-500 dark:focus:border-blue-400 dark:focus:ring-blue-400"
-        rows={12}
+        rows={4}
       />
 
       <div className="flex items-center justify-between">
         <div className="text-xs text-zinc-600 dark:text-zinc-400">
           {urlInput.trim() ? (
             <>
-              Found {urlInput.match(DOUYIN_URL_PATTERN)?.length || 0} URL(s) in text
+              Found {urlInput.split('\n').filter(line => line.trim()).length} post(s) in input
             </>
           ) : (
-            'Press Cmd+Enter to extract URLs and parse'
+            'Press Cmd+Enter to parse and create posts'
           )}
         </div>
         <button
