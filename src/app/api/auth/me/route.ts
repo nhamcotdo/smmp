@@ -2,9 +2,9 @@ import { NextResponse } from 'next/server'
 import { withAuth } from '@/lib/auth/middleware'
 import type { ApiResponse } from '@/lib/types'
 import type { UserResponse } from '@/lib/types/auth'
-import type { User } from '@prisma/client'
+import type { AuthUser } from '@/lib/auth/types'
 
-async function getMeHandler(request: Request, user: User) {
+async function getMeHandler(request: Request, user: AuthUser) {
   const response: UserResponse = {
     id: user.id,
     email: user.email,

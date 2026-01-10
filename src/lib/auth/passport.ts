@@ -1,6 +1,7 @@
 import { prisma } from '../db/connection'
+import type { AuthUser } from './types'
 
-export async function verifyJwtToken(token: string) {
+export async function verifyJwtToken(token: string): Promise<AuthUser> {
   const { verifyToken } = await import('./jwt')
 
   // Verify JWT signature and expiry first
