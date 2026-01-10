@@ -17,10 +17,7 @@
     "db:migrate:deploy": "prisma migrate deploy",
     "db:migrate:reset": "prisma migrate reset",
     "db:studio": "prisma studio",
-    "db:seed": "npx tsx scripts/seed.ts",
-    "add:enum:values": "npx tsx scripts/add-uppercase-enum-values.ts",
-    "convert:enums": "npx tsx scripts/convert-enums-to-uppercase.ts",
-    "migrate:remove:lowercase:prod": "psql $DATABASE_URL -f scripts/remove-lowercase-enum-values.sql"
+    "db:seed": "npx tsx scripts/seed.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.19.1",
