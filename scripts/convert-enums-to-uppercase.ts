@@ -231,7 +231,14 @@ async function countLowercaseValues(
       lowerValue
     )
     return Number(result[0]?.count ?? 0)
-  } catch {
+  } catch (error: any) {
+    // If enum only has uppercase values, lowercase cast will fail
+    // Error code 22P02 = invalid_text_representation
+    // This means the enum is already converted or never had lowercase values
+    if (error?.code === '22P02' || error?.code === '42804') {
+      return 0
+    }
+    // For other errors, also return 0 to skip (idempotent behavior)
     return 0
   }
 }
@@ -249,7 +256,7 @@ async function convertEnumValue(
   // Check if conversion is needed (idempotency)
   const count = await countLowercaseValues(tableName, columnName, enumTypeName, lowerValue)
   if (count === 0) {
-    return 0 // Already converted
+    return 0 // Already converted or enum doesn't have lowercase values
   }
 
   if (isDryRun) {
@@ -257,14 +264,23 @@ async function convertEnumValue(
     return count
   }
 
-  // Use parameterized query with type casting to prevent SQL injection
-  // Note: enum type name in cast should NOT be quoted
-  const result = await prisma.$executeRawUnsafe(
-    `UPDATE "${tableName}" SET "${columnName}" = $1::${enumTypeName} WHERE "${columnName}" = $2::${enumTypeName}`,
-    upperValue,
-    lowerValue
-  )
-  return Number(result)
+  try {
+    // Use parameterized query with type casting to prevent SQL injection
+    // Note: enum type name in cast should NOT be quoted
+    const result = await prisma.$executeRawUnsafe(
+      `UPDATE "${tableName}" SET "${columnName}" = $1::${enumTypeName} WHERE "${columnName}" = $2::${enumTypeName}`,
+      upperValue,
+      lowerValue
+    )
+    return Number(result)
+  } catch (error: any) {
+    // If the cast fails (enum already converted), treat as success
+    // Error code 22P02 = invalid_text_representation
+    if (error?.code === '22P02' || error?.code === '42804') {
+      return 0 // Already converted
+    }
+    throw error // Re-throw other errors
+  }
 }
 
 /**
